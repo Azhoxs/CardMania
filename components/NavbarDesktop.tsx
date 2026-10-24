@@ -5,7 +5,10 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname, useSearchParams, useRouter } from 'next/navigation'
 import { supabase, type Friend, type Notification } from '@/lib/supabase'
-import { LogOut, Users, Bell, Search, X, Trash2 } from 'lucide-react'
+import { LogOut, Users, Bell, Search, X, Trash2, LayoutGrid, Heart, ChevronRight, Check, BarChart3 } from 'lucide-react'
+import Sheet from './Sheet'
+import { Segmented } from './FormBits'
+import { useFavoriteCardType, type FavoriteCardType } from '@/lib/useFavoriteCardType'
 
 interface NavbarDesktopProps {
   userName?: string
@@ -307,153 +310,201 @@ export default function NavbarDesktop({ userName, userId, onLogout }: NavbarDesk
     }
   }
 
+  const [isAccountOpen, setIsAccountOpen] = useState(false)
+  const { favoriteCardType, saveFavoriteCardType } = useFavoriteCardType()
+  const [favoriteSaved, setFavoriteSaved] = useState<'ok' | 'error' | null>(null)
+
+  // La barre d'onglets mobile ouvre le compte via un évènement et reçoit l'état « non lu »
+  useEffect(() => {
+    const openAccount = () => setIsAccountOpen(true)
+    window.addEventListener('cardmania:openAccount', openAccount)
+    return () => window.removeEventListener('cardmania:openAccount', openAccount)
+  }, [])
+
+  useEffect(() => {
+    ;(window as any).__cmUnread = hasUnreadNotifications
+    window.dispatchEvent(new CustomEvent('cardmania:unread', { detail: hasUnreadNotifications }))
+  }, [hasUnreadNotifications])
+
+  const initial = (userName || '?').charAt(0).toUpperCase()
+
+  const isOnStats = !!pathname?.startsWith('/statistiques')
+
+  const sideItem = (active: boolean) =>
+    `flex min-h-[48px] w-full items-center gap-3 rounded-2xl px-4 text-[15px] font-bold transition-all ${
+      active
+        ? 'bg-brand-500 text-white shadow-[0_4px_0_#182fb3]'
+        : 'text-ink-700 hover:bg-ink-100'
+    }`
+
+  const openFriendsPanel = () => {
+    setIsAccountOpen(false)
+    setIsFriendsOpen(true)
+  }
+
+  const openNotificationsPanel = () => {
+    setIsAccountOpen(false)
+    handleOpenNotifications()
+  }
+
+  const askLogout = () => {
+    setIsAccountOpen(false)
+    setIsLogoutConfirmOpen(true)
+  }
+
   return (
     <>
-      <nav className="hidden md:block fixed top-0 inset-x-0 z-40 bg-white/80 backdrop-blur-sm border-b border-cream-200">
-        <div className="max-w-7xl mx-auto px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            {/* Colonne gauche : logo + titre */}
-            <div className="flex items-center gap-3">
-              <div className="w-90 h-90 flex items-center justify-center">
-                <Image
-                  src="/assets/Logo.png"
-                  alt="CardMania"
-                  width={75}
-                  height={75}
-                  className="object-contain"
-                  priority
-                />
-              </div>
-              <h1 className="text-2xl font-bold text-forest-900 tracking-tight">
-                CardMania
-              </h1>
-            </div>
+      {/* Barre latérale — ordinateur */}
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-[264px] flex-col border-r border-ink-100 bg-white px-4 pb-5 pt-6 md:flex">
+        <div className="mb-8 flex items-center gap-3 px-2">
+          <Image
+            src="/assets/Favicon.png"
+            alt=""
+            width={44}
+            height={44}
+            className="h-11 w-11 object-contain"
+            priority
+          />
+          <span className="font-display text-lg font-extrabold tracking-tight text-ink-900">CardMania</span>
+        </div>
 
-            {/* Colonne centrale : navigation centrée */}
-            <div className="flex-1 flex justify-center">
-              <div className="flex items-center gap-2 rounded-full bg-cream-50 border border-cream-200 px-1 py-1">
-                <Link
-                  href={dashboardHref}
-                  className={`px-4 py-1.5 text-sm font-semibold rounded-full transition-colors ${
-                    isOnDashboard
-                      ? 'bg-forest-500 text-white shadow-sm'
-                      : 'text-forest-700 hover:bg-cream-100'
-                  }`}
-                >
-                  Ma collection
-                </Link>
-                <Link
-                  href={wishlistHref}
-                  className={`px-4 py-1.5 text-sm font-semibold rounded-full transition-colors ${
-                    isOnWishlist
-                      ? 'bg-forest-500 text-white shadow-sm'
-                      : 'text-forest-700 hover:bg-cream-100'
-                  }`}
-                >
-                  Souhaits
-                </Link>
-              </div>
-            </div>
+        <nav className="flex flex-col gap-1" aria-label="Navigation principale">
+          <Link
+            href={dashboardHref}
+            className={sideItem(!!isOnDashboard)}
+            aria-current={isOnDashboard ? 'page' : undefined}
+          >
+            <LayoutGrid className="h-5 w-5" />
+            Ma collection
+          </Link>
+          <Link
+            href={wishlistHref}
+            className={sideItem(!!isOnWishlist)}
+            aria-current={isOnWishlist ? 'page' : undefined}
+          >
+            <Heart className="h-5 w-5" />
+            Souhaits
+          </Link>
+          <Link
+            href="/statistiques"
+            className={sideItem(isOnStats)}
+            aria-current={isOnStats ? 'page' : undefined}
+          >
+            <BarChart3 className="h-5 w-5" />
+            Statistiques
+          </Link>
+          <button type="button" onClick={() => setIsFriendsOpen(true)} className={sideItem(false)}>
+            <Users className="h-5 w-5" />
+            Amis
+          </button>
+          <button type="button" onClick={handleOpenNotifications} className={sideItem(false)}>
+            <Bell className="h-5 w-5" />
+            Notifications
+            {hasUnreadNotifications && (
+              <span className="ml-auto h-2.5 w-2.5 rounded-full bg-danger-500" aria-label="Nouvelles notifications" />
+            )}
+          </button>
+        </nav>
 
-            {/* Colonne droite : amis, notifications, profil/déconnexion */}
-            <div className="flex items-center gap-3">
-              {/* Amis */}
-              <button
-                type="button"
-                onClick={() => setIsFriendsOpen(true)}
-                className="relative flex items-center justify-center w-9 h-9 rounded-full bg-cream-50 text-forest-700 hover:bg-cream-100 border border-cream-200 transition-colors"
-                title="Liste d'amis"
-              >
-                <Users className="w-4 h-4" />
-              </button>
+        <div className="mt-auto flex items-center gap-3 rounded-2xl bg-ink-50 p-2.5">
+          <button
+            type="button"
+            onClick={() => setIsAccountOpen(true)}
+            className="flex min-w-0 flex-1 items-center gap-3 rounded-xl text-left transition hover:opacity-80"
+            aria-label="Ouvrir mon compte"
+          >
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand-100 font-display text-base font-bold text-brand-700">
+              {initial}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink-900">{userName}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsLogoutConfirmOpen(true)}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-ink-500 transition hover:bg-white hover:text-ink-900"
+            aria-label="Se déconnecter"
+          >
+            <LogOut className="h-5 w-5" />
+          </button>
+        </div>
+      </aside>
 
-              {/* Notifications */}
-              <button
-                type="button"
-                onClick={handleOpenNotifications}
-                className="relative flex items-center justify-center w-9 h-9 rounded-full bg-cream-50 text-forest-700 hover:bg-cream-100 border border-cream-200 transition-colors"
-                title="Notifications"
-              >
-                <Bell className="w-4 h-4" />
-                {hasUnreadNotifications && (
-                  <span className="absolute -top-0.5 -right-0.5 inline-flex h-3 w-3 rounded-full bg-red-500 border-2 border-white" />
-                )}
-              </button>
-
-              {/* Pseudo + icône déconnexion dans la même section */}
-              <button
-                type="button"
-                onClick={() => setIsLogoutConfirmOpen(true)}
-                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-cream-50 hover:bg-cream-100 border border-cream-200 text-forest-900 text-xs font-semibold max-w-[12rem] transition-colors"
-              >
-                {userName && (
-                  <span className="truncate">{userName}</span>
-                )}
-                <LogOut className="w-4 h-4 shrink-0" />
-              </button>
+      {/* Compte — mobile */}
+      {isAccountOpen && (
+        <Sheet onClose={() => setIsAccountOpen(false)} title="Mon compte" size="sm">
+          <div className="mb-4 flex items-center gap-4 rounded-3xl bg-ink-50 p-4">
+            <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-brand-100 font-display text-xl font-bold text-brand-700">
+              {initial}
+            </span>
+            <div className="min-w-0">
+              <p className="truncate text-lg font-bold text-ink-900">{userName}</p>
+              <p className="text-sm text-ink-500">
+                {friends.length === 0 ? 'Aucun ami pour le moment' : `${friends.length} ami${friends.length > 1 ? 's' : ''}`}
+              </p>
             </div>
           </div>
-        </div>
-      </nav>
 
-      {/* Actions mobile en haut à droite (notifications + logout) */}
-      <div className="md:hidden fixed top-3 right-4 z-40 flex items-center gap-2">
-        <button
-          type="button"
-          onClick={handleOpenNotifications}
-          className="relative flex items-center justify-center w-9 h-9 rounded-full bg-white/90 border border-cream-200 text-forest-700 shadow-sm hover:bg-cream-50 transition-colors"
-          title="Notifications"
-        >
-          <Bell className="w-4 h-4" />
-          {hasUnreadNotifications && (
-            <span className="absolute -top-0.5 -right-0.5 inline-flex h-3 w-3 rounded-full bg-red-500 border-2 border-white" />
-          )}
-        </button>
-        <button
-          type="button"
-          onClick={() => setIsLogoutConfirmOpen(true)}
-          className="flex items-center justify-center w-9 h-9 rounded-full bg-white/90 border border-cream-200 text-forest-700 shadow-sm hover:bg-cream-50 transition-colors"
-          title="Se déconnecter"
-        >
-          <LogOut className="w-4 h-4" />
-        </button>
-      </div>
-
-      {/* Modal amis */}
-      {isFriendsOpen && (
-        <div
-          className="fixed inset-0 z-50 bg-black/40 flex items-end md:items-center justify-center overlay-fade-soft"
-          onClick={() => setIsFriendsOpen(false)}
-        >
-          <div
-            className="w-full max-w-md bg-white rounded-t-3xl md:rounded-2xl shadow-2xl border border-cream-200 p-5 space-y-4 panel-slide-up-soft max-h-[85vh] overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Poignée mobile */}
-            <div className="md:hidden flex justify-center pt-1 pb-2 -mt-2">
-              <div className="w-10 h-1.5 bg-cream-300 rounded-full" />
-            </div>
-
-            <div className="flex items-center justify-between mb-1">
-              <h2 className="text-lg font-semibold text-forest-900">
-                Tes amis
-              </h2>
-              <button
-                type="button"
-                onClick={() => setIsFriendsOpen(false)}
-                className="p-1 rounded-full hover:bg-cream-100 text-forest-700"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="space-y-2">
-              <p className="text-xs font-semibold text-forest-800">
-                Rechercher un ami
+          <div className="mb-4 rounded-3xl bg-ink-50 p-4">
+            <p className="text-base font-bold text-ink-900">Type de carte préféré</p>
+            <p className="mb-3 mt-0.5 text-sm text-ink-500">
+              Il sera présélectionné quand tu ajoutes une carte ou un souhait.
+            </p>
+            <Segmented
+              label="Type de carte préféré"
+              value={favoriteCardType ?? ('' as FavoriteCardType)}
+              onChange={async (value) => {
+                setFavoriteSaved(null)
+                const ok = await saveFavoriteCardType(value)
+                setFavoriteSaved(ok ? 'ok' : 'error')
+              }}
+              options={[
+                { value: 'pokemon', label: 'Pokémon' },
+                { value: 'topps', label: 'Topps / Panini' },
+              ]}
+            />
+            {favoriteSaved === 'ok' && (
+              <p className="mt-2 flex items-center gap-1.5 text-sm font-semibold text-brand-600">
+                <Check className="h-4 w-4" />
+                Enregistré
               </p>
+            )}
+            {favoriteSaved === 'error' && (
+              <p className="mt-2 text-sm text-danger-600">
+                Impossible d&apos;enregistrer sur ton compte. Réessaie dans un instant.
+              </p>
+            )}
+          </div>
+
+          <div className="divide-y divide-ink-100">
+            <button type="button" onClick={openNotificationsPanel} className="flex min-h-[60px] w-full items-center gap-4 text-left">
+              <Bell className="h-6 w-6 text-ink-500" />
+              <span className="flex-1 text-base font-semibold text-ink-900">Notifications</span>
+              {hasUnreadNotifications && <span className="tag bg-danger-50 text-danger-600">Nouveau</span>}
+              <ChevronRight className="h-5 w-5 text-ink-300" />
+            </button>
+            <button type="button" onClick={openFriendsPanel} className="flex min-h-[60px] w-full items-center gap-4 text-left">
+              <Users className="h-6 w-6 text-ink-500" />
+              <span className="flex-1 text-base font-semibold text-ink-900">Mes amis</span>
+              <ChevronRight className="h-5 w-5 text-ink-300" />
+            </button>
+            <button type="button" onClick={askLogout} className="flex min-h-[60px] w-full items-center gap-4 text-left text-danger-600">
+              <LogOut className="h-6 w-6" />
+              <span className="flex-1 text-base font-semibold">Se déconnecter</span>
+            </button>
+          </div>
+        </Sheet>
+      )}
+
+      {/* Amis */}
+      {isFriendsOpen && (
+        <Sheet onClose={() => setIsFriendsOpen(false)} title="Mes amis" subtitle="Consulte leur collection et leurs souhaits.">
+          <div className="space-y-6 pt-1">
+            <div>
+              <label className="label" htmlFor="friend-search">Ajouter un ami</label>
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-forest-400" />
+                <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-ink-400" />
                 <input
+                  id="friend-search"
                   type="text"
                   value={friendSearch}
                   onChange={(e) => {
@@ -462,63 +513,53 @@ export default function NavbarDesktop({ userName, userId, onLogout }: NavbarDesk
                     setFriendSuccess(null)
                   }}
                   placeholder="Pseudo de ton ami"
-                  className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-cream-200 bg-cream-50 focus:outline-none focus:ring-2 focus:ring-forest-500 focus:border-transparent text-sm"
+                  className="field pl-12"
+                  autoCapitalize="none"
                 />
               </div>
-              {friendError && (
-                <p className="text-xs text-red-600 mt-1">{friendError}</p>
-              )}
+              {friendError && <p className="mt-2 text-sm text-danger-600">{friendError}</p>}
               {friendSuccess && !friendError && (
-                <p className="text-xs text-emerald-700 mt-1">
+                <p className="mt-2 flex items-center gap-1.5 text-sm font-semibold text-brand-600">
+                  <Check className="h-4 w-4" />
                   {friendSuccess}
                 </p>
               )}
             </div>
 
             {friendResults.length > 0 && (
-              <div className="mt-2 border border-cream-200 rounded-xl p-3 bg-cream-50 space-y-2 max-h-40 overflow-y-auto">
-                <p className="text-xs font-semibold text-forest-800 mb-1">
-                  Résultats
-                </p>
+              <ul className="space-y-2">
                 {friendResults.map((r) => (
-                  <div
-                    key={r.id}
-                    className="flex items-center justify-between gap-2 py-1.5"
-                  >
-                    <span className="text-sm text-forest-900 truncate">
-                      {r.username}
+                  <li key={r.id} className="flex items-center gap-3 rounded-2xl bg-ink-50 p-2.5 pl-3">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white font-bold text-ink-700 ring-1 ring-inset ring-ink-200">
+                      {r.username.charAt(0).toUpperCase()}
                     </span>
+                    <span className="min-w-0 flex-1 truncate font-semibold text-ink-900">{r.username}</span>
                     <button
                       type="button"
                       onClick={() => handleAddFriend(r)}
                       disabled={loadingFriendAction}
-                      className="text-xs font-semibold px-3 py-1 rounded-full bg-forest-500 hover:bg-forest-600 text-white disabled:opacity-60"
+                      className="btn-primary min-h-[44px] px-4 text-sm"
                     >
-                      Ajouter cet ami
+                      Ajouter
                     </button>
-                  </div>
+                  </li>
                 ))}
-              </div>
+              </ul>
             )}
 
-            <div className="pt-2 border-t border-cream-200 mt-2 max-h-52 overflow-y-auto">
-              <p className="text-xs font-semibold text-forest-800 mb-2">
-                Amis actuels
-              </p>
+            <div>
+              <p className="label">Amis actuels</p>
               {friends.length === 0 ? (
-                <p className="text-xs text-forest-600">
-                  Tu n&apos;as pas encore ajouté d&apos;amis.
+                <p className="rounded-2xl bg-ink-50 p-4 text-ink-500">
+                  Tu n&apos;as pas encore d&apos;amis. Cherche un pseudo ci-dessus pour envoyer une demande.
                 </p>
               ) : (
-                <ul className="space-y-1.5">
+                <ul className="divide-y divide-ink-100">
                   {friends.map((f) => (
-                    <li
-                      key={f.id}
-                      className="px-3 py-1.5 rounded-lg bg-cream-50 border border-cream-200 text-sm text-forest-900 flex items-center justify-between gap-2 hover:bg-cream-100 transition-colors"
-                    >
+                    <li key={f.id} className="flex items-center gap-1">
                       <button
                         type="button"
-                        className="flex-1 text-left truncate cursor-pointer hover:text-forest-800"
+                        className="flex min-h-[60px] min-w-0 flex-1 items-center gap-3 text-left"
                         onClick={() => {
                           const base = pathname?.startsWith('/souhaits') ? '/souhaits' : '/dashboard'
                           const params = new URLSearchParams()
@@ -528,18 +569,22 @@ export default function NavbarDesktop({ userName, userId, onLogout }: NavbarDesk
                           setIsFriendsOpen(false)
                         }}
                       >
-                        {f.friend_username}
+                        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand-100 font-bold text-brand-700">
+                          {f.friend_username.charAt(0).toUpperCase()}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate font-semibold text-ink-900">{f.friend_username}</span>
+                          <span className="block text-sm text-ink-500">Voir sa collection</span>
+                        </span>
+                        <ChevronRight className="h-5 w-5 shrink-0 text-ink-300" />
                       </button>
                       <button
                         type="button"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setFriendToRemove(f)
-                        }}
-                        className="p-1.5 rounded-full text-red-600 hover:bg-red-50 transition-colors"
-                        title="Supprimer cet ami"
+                        onClick={() => setFriendToRemove(f)}
+                        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-ink-400 transition hover:bg-danger-50 hover:text-danger-600"
+                        aria-label={`Retirer ${f.friend_username} de mes amis`}
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className="h-5 w-5" />
                       </button>
                     </li>
                   ))}
@@ -547,179 +592,106 @@ export default function NavbarDesktop({ userName, userId, onLogout }: NavbarDesk
               )}
             </div>
           </div>
-        </div>
+        </Sheet>
       )}
 
-      {/* Centre de notifications */}
+      {/* Notifications */}
       {isNotificationsOpen && (
-        <div
-          className="fixed inset-0 z-50 bg-black/40 flex items-start justify-end pt-20 pr-6 overlay-fade-soft"
-          onClick={() => setIsNotificationsOpen(false)}
-        >
-          <div
-            className="w-full max-w-sm bg-white rounded-2xl shadow-2xl border border-cream-200 p-4 space-y-3 panel-slide-up-soft"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between">
-              <h2 className="text-base font-semibold text-forest-900">
-                Notifications
-              </h2>
-              <button
-                type="button"
-                onClick={() => setIsNotificationsOpen(false)}
-                className="p-1 rounded-full hover:bg-cream-100 text-forest-700"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
+        <Sheet onClose={() => setIsNotificationsOpen(false)} title="Notifications" size="sm">
+          <div className="space-y-3 pt-1">
             {notifications.length === 0 ? (
-              <p className="text-sm text-forest-600">
-                Aucune notification pour le moment.
-              </p>
+              <div className="flex flex-col items-center gap-2 py-10 text-center">
+                <Bell className="h-8 w-8 text-ink-300" />
+                <p className="font-semibold text-ink-900">Tout est à jour</p>
+                <p className="text-sm text-ink-500">Les demandes d&apos;amis apparaîtront ici.</p>
+              </div>
             ) : (
-              <div className="space-y-2 max-h-80 overflow-y-auto">
-                {notifications.map((notif) => {
-                  if (notif.type === 'friend_request') {
-                    const payload = (notif.payload || {}) as any
-                    const requesterUsername =
-                      payload.requester_username || 'Un utilisateur'
-                    return (
-                      <div
-                        key={notif.id}
-                        className="relative rounded-xl border border-cream-200 bg-cream-50 px-3 py-2.5 space-y-2"
-                      >
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveNotification(notif.id)}
-                          className="absolute top-1.5 right-1.5 p-1 rounded-full hover:bg-cream-100 text-forest-600"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                        <p className="text-sm text-forest-900 pr-5">
-                          <span className="font-semibold">{requesterUsername}</span>{' '}
-                          souhaite t&apos;ajouter comme ami.
-                        </p>
-                        <div className="flex items-center gap-2 text-xs">
-                          <button
-                            type="button"
-                            disabled={loadingFriendAction}
-                            onClick={() => handleRespondFriendRequest(notif, true)}
-                            className="flex-1 px-3 py-1.5 rounded-lg bg-forest-500 hover:bg-forest-600 text-white font-semibold disabled:opacity-60"
-                          >
-                            Accepter
-                          </button>
-                          <button
-                            type="button"
-                            disabled={loadingFriendAction}
-                            onClick={() => handleRespondFriendRequest(notif, false)}
-                            className="flex-1 px-3 py-1.5 rounded-lg bg-cream-100 hover:bg-cream-200 text-forest-900 font-semibold disabled:opacity-60"
-                          >
-                            Refuser
-                          </button>
-                        </div>
-                      </div>
-                    )
-                  }
-
-                  // Fallback générique
-                  return (
-                    <div
-                      key={notif.id}
-                      className="relative rounded-xl border border-cream-200 bg-cream-50 px-3 py-2.5"
-                    >
+              notifications.map((notif) => {
+                const payload = (notif.payload || {}) as any
+                const isFriendRequest = notif.type === 'friend_request'
+                const requesterUsername = payload.requester_username || 'Un utilisateur'
+                return (
+                  <div key={notif.id} className="space-y-3 rounded-3xl bg-ink-50 p-4">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-ink-700">
+                        {isFriendRequest ? (
+                          <>
+                            <span className="font-bold text-ink-900">{requesterUsername}</span> souhaite t&apos;ajouter
+                            comme ami.
+                          </>
+                        ) : (
+                          'Nouvelle notification.'
+                        )}
+                      </p>
                       <button
                         type="button"
                         onClick={() => handleRemoveNotification(notif.id)}
-                        className="absolute top-1.5 right-1.5 p-1 rounded-full hover:bg-cream-100 text-forest-600"
+                        className="-mr-2 -mt-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-ink-400 transition hover:bg-ink-100 hover:text-ink-900"
+                        aria-label="Supprimer la notification"
                       >
-                        <X className="w-3 h-3" />
+                        <X className="h-4 w-4" />
                       </button>
-                      <p className="text-sm text-forest-900">
-                        Nouvelle notification.
-                      </p>
                     </div>
-                  )
-                })}
-              </div>
+                    {isFriendRequest && (
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          disabled={loadingFriendAction}
+                          onClick={() => handleRespondFriendRequest(notif, true)}
+                          className="btn-primary flex-1"
+                        >
+                          Accepter
+                        </button>
+                        <button
+                          type="button"
+                          disabled={loadingFriendAction}
+                          onClick={() => handleRespondFriendRequest(notif, false)}
+                          className="btn-secondary flex-1"
+                        >
+                          Refuser
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )
+              })
             )}
           </div>
-        </div>
+        </Sheet>
       )}
 
-      {/* Confirmation déconnexion */}
+      {/* Déconnexion */}
       {isLogoutConfirmOpen && (
-        <div
-          className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center overlay-fade-soft"
-          onClick={() => setIsLogoutConfirmOpen(false)}
-        >
-          <div
-            className="w-full max-w-xs bg-white rounded-2xl shadow-2xl border border-cream-200 p-5 space-y-3 panel-slide-up-soft"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 className="text-base font-semibold text-forest-900">
-              Se déconnecter ?
-            </h2>
-            <p className="text-sm text-forest-700">
-              Tu vas être déconnecté de CardMania.
-            </p>
-            <div className="flex items-center gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setIsLogoutConfirmOpen(false)}
-                className="flex-1 px-3 py-2 rounded-xl bg-cream-100 hover:bg-cream-200 text-forest-900 text-sm font-semibold"
-              >
-                Annuler
-              </button>
-              <button
-                type="button"
-                onClick={onLogout}
-                className="flex-1 px-3 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-semibold"
-              >
-                Se déconnecter
-              </button>
-            </div>
+        <Sheet onClose={() => setIsLogoutConfirmOpen(false)} title="Se déconnecter ?" size="sm" z="z-[60]">
+          <p className="text-ink-500">Tu pourras te reconnecter à tout moment avec ton pseudo.</p>
+          <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row">
+            <button type="button" onClick={() => setIsLogoutConfirmOpen(false)} className="btn-secondary flex-1">
+              Rester connecté
+            </button>
+            <button type="button" onClick={onLogout} className="btn-danger flex-1">
+              Se déconnecter
+            </button>
           </div>
-        </div>
+        </Sheet>
       )}
 
-      {/* Confirmation suppression d'ami */}
+      {/* Suppression d'ami */}
       {friendToRemove && (
-        <div
-          className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center overlay-fade-soft"
-          onClick={() => setFriendToRemove(null)}
-        >
-          <div
-            className="w-full max-w-xs bg-white rounded-2xl shadow-2xl border border-cream-200 p-5 space-y-3 panel-slide-up-soft"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 className="text-base font-semibold text-forest-900">
-              Supprimer cet ami ?
-            </h2>
-            <p className="text-sm text-forest-700">
-              {friendToRemove.friend_username
-                ? `Tu ne verras plus ${friendToRemove.friend_username} dans ta liste d'amis.`
-                : "Tu ne verras plus cet ami dans ta liste."}
-            </p>
-            <div className="flex items-center gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setFriendToRemove(null)}
-                className="flex-1 px-3 py-2 rounded-xl bg-cream-100 hover:bg-cream-200 text-forest-900 text-sm font-semibold"
-              >
-                Annuler
-              </button>
-              <button
-                type="button"
-                disabled={loadingFriendAction}
-                onClick={handleRemoveFriend}
-                className="flex-1 px-3 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-semibold disabled:opacity-60"
-              >
-                Supprimer
-              </button>
-            </div>
+        <Sheet onClose={() => setFriendToRemove(null)} title="Retirer cet ami ?" size="sm" z="z-[60]">
+          <p className="text-ink-500">
+            {friendToRemove.friend_username
+              ? `${friendToRemove.friend_username} disparaîtra de ta liste d'amis. Vous pourrez vous ajouter de nouveau plus tard.`
+              : 'Cet ami disparaîtra de ta liste.'}
+          </p>
+          <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row">
+            <button type="button" onClick={() => setFriendToRemove(null)} className="btn-secondary flex-1">
+              Annuler
+            </button>
+            <button type="button" disabled={loadingFriendAction} onClick={handleRemoveFriend} className="btn-danger flex-1">
+              Retirer
+            </button>
           </div>
-        </div>
+        </Sheet>
       )}
     </>
   )

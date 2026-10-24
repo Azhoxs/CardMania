@@ -1,6 +1,7 @@
 'use client'
 
 import type { ReactNode } from 'react'
+import Sheet from './Sheet'
 
 interface ConfirmDialogProps {
   open: boolean
@@ -27,44 +28,30 @@ export default function ConfirmDialog({
 }: ConfirmDialogProps) {
   if (!open) return null
 
-  const confirmClasses =
-    tone === 'danger'
-      ? 'bg-red-500 hover:bg-red-600 text-white shadow-lg hover:shadow-xl'
-      : 'bg-forest-500 hover:bg-forest-600 text-white shadow-lg hover:shadow-xl'
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4 overlay-fade-soft">
-      <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl border border-cream-200 overflow-hidden panel-slide-up-soft">
-        <div className="px-6 pt-6 pb-4 flex flex-col items-center text-center gap-3">
-          {icon && (
-            <div className="w-12 h-12 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center shadow-sm">
-              {icon}
-            </div>
-          )}
-          <h2 className="text-lg font-semibold text-forest-900">{title}</h2>
-          {description && (
-            <p className="text-sm text-forest-700 leading-relaxed">{description}</p>
-          )}
+    <Sheet onClose={onCancel} title={title} size="sm" z="z-[70]">
+      {icon && (
+        <div
+          className={`mb-4 flex h-14 w-14 items-center justify-center rounded-full ${
+            tone === 'danger' ? 'bg-danger-50 text-danger-600' : 'bg-brand-50 text-brand-600'
+          }`}
+        >
+          {icon}
         </div>
-
-        <div className="px-6 pb-6 pt-2 flex gap-3">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="flex-1 px-4 py-3 rounded-xl bg-cream-100 hover:bg-cream-200 text-forest-900 font-semibold transition-colors"
-          >
-            {cancelLabel}
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            className={`flex-1 px-4 py-3 rounded-xl font-semibold transition-all duration-200 ${confirmClasses}`}
-          >
-            {confirmLabel}
-          </button>
-        </div>
+      )}
+      {description && <p className="leading-relaxed text-ink-500">{description}</p>}
+      <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row">
+        <button type="button" onClick={onCancel} className="btn-secondary flex-1">
+          {cancelLabel}
+        </button>
+        <button
+          type="button"
+          onClick={onConfirm}
+          className={`flex-1 ${tone === 'danger' ? 'btn-danger' : 'btn-primary'}`}
+        >
+          {confirmLabel}
+        </button>
       </div>
-    </div>
+    </Sheet>
   )
 }
-

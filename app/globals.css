@@ -2,29 +2,153 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --foreground-rgb: 31, 59, 49;
-  --background-start-rgb: 253, 252, 251;
-  --background-end-rgb: 245, 241, 232;
+html {
+  background: #eef1ff;
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
 }
 
 body {
-  color: rgb(var(--foreground-rgb));
-  background: linear-gradient(
-      to bottom,
-      transparent,
-      rgb(var(--background-end-rgb))
-    )
-    rgb(var(--background-start-rgb));
+  min-height: 100dvh;
+  color: #0b1020;
+  /* Fond à pois, comme un écran de jeu */
+  background-color: #eef1ff;
+  background-image: radial-gradient(#d5dcff 1.6px, transparent 1.6px);
+  background-size: 24px 24px;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* On garde la sélection de texte dans les champs de saisie */
+input,
+textarea {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* 16px minimum : empêche le zoom automatique d'iOS dans les champs */
+input,
+select,
+textarea {
+  font-size: 16px;
+}
+
+:focus-visible {
+  outline: 3px solid #ffcf33;
+  outline-offset: 2px;
+}
+
+::selection {
+  background: #dde3ff;
+}
+
+@layer components {
+  /* ---------- Boutons 3D : ils s'enfoncent quand on appuie ---------- */
+  .btn {
+    @apply inline-flex min-h-[52px] select-none items-center justify-center gap-2 rounded-2xl px-6 text-base font-bold transition-[transform,background-color,border-width] duration-100 active:translate-y-[3px] active:border-b-[1px] disabled:pointer-events-none disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply btn border-b-4 border-brand-700 bg-brand-500 text-white hover:bg-brand-600;
+  }
+  .btn-sun {
+    @apply btn border-b-4 border-sun-600 bg-sun-400 text-ink-900 hover:brightness-105;
+  }
+  .btn-secondary {
+    @apply btn border-2 border-b-4 border-ink-200 bg-white text-ink-900 hover:bg-ink-50 active:border-b-2;
+  }
+  .btn-ghost {
+    @apply btn text-ink-700 hover:bg-ink-100 active:translate-y-0;
+  }
+  .btn-danger {
+    @apply btn border-2 border-b-4 border-danger-500/30 bg-danger-50 text-danger-600 hover:bg-danger-500 hover:text-white active:border-b-2;
+  }
+  .btn-icon {
+    @apply inline-flex h-12 w-12 shrink-0 select-none items-center justify-center rounded-2xl border-2 border-b-4 border-ink-200 bg-white text-ink-900 transition-[transform,background-color] duration-100 hover:bg-ink-50 active:translate-y-[2px] active:border-b-2;
+  }
+
+  /* ---------- Champs ---------- */
+  .field {
+    @apply min-h-[52px] w-full rounded-2xl bg-white px-4 text-base font-medium text-ink-900 ring-2 ring-inset ring-ink-200 placeholder:font-normal placeholder:text-ink-400 transition focus:outline-none focus:ring-brand-500;
+  }
+  .label {
+    @apply mb-1.5 block text-sm font-bold text-ink-700;
+  }
+  .hint {
+    @apply mt-1.5 text-sm text-ink-500;
+  }
+
+  /* ---------- Pastilles de filtre ---------- */
+  .pill {
+    @apply inline-flex min-h-[44px] shrink-0 select-none items-center gap-2 whitespace-nowrap rounded-2xl border-2 border-b-4 border-ink-200 bg-white px-4 text-sm font-bold text-ink-700 transition-[transform,background-color] duration-100 active:translate-y-[2px] active:border-b-2;
+  }
+  .pill[aria-pressed='true'] {
+    @apply border-brand-700 bg-brand-500 text-white;
+  }
+  .tag {
+    @apply inline-flex items-center gap-1.5 rounded-full bg-ink-100 px-2.5 py-1 text-xs font-bold text-ink-700;
+  }
+
+  /* ---------- Blocs « jeu » ---------- */
+  .tile {
+    @apply rounded-3xl border-2 border-b-4 border-ink-200 bg-white;
+  }
+
+  /* ---------- Carte à collectionner : ratio réel 63 × 88 mm ---------- */
+  .card-frame {
+    @apply relative aspect-[63/88] overflow-hidden rounded-card bg-ink-100 shadow-card;
+  }
+
+  /* Reflet qui traverse la carte quand on la survole ou qu'on la touche */
+  .card-shine::after {
+    content: '';
+    @apply pointer-events-none absolute inset-0 opacity-0;
+    background: linear-gradient(115deg, transparent 30%, rgba(255, 255, 255, 0.55) 48%, transparent 66%);
+    background-size: 250% 100%;
+    background-position: 120% 0;
+    transition: opacity 200ms;
+  }
+  .card-tile:hover .card-shine::after,
+  .card-tile:active .card-shine::after,
+  .card-tile:focus-visible .card-shine::after {
+    opacity: 1;
+    animation: shine-sweep 700ms ease-out forwards;
+  }
+
+  /* ---------- Panneaux (bottom sheet mobile, tiroir ou modale desktop) ---------- */
+  .sheet-backdrop {
+    animation: fade-in 180ms ease-out;
+  }
+  .sheet-panel {
+    animation: sheet-up 300ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
 }
 
 @layer utilities {
   .text-balance {
     text-wrap: balance;
   }
+  .pb-safe {
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  }
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
 }
 
-/* Transitions douces pour contenu et overlays */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 @keyframes fade-soft {
   from {
     opacity: 0;
@@ -36,23 +160,89 @@ body {
   }
 }
 
-@keyframes overlay-fade-soft {
+@keyframes sheet-up {
   from {
-    opacity: 0;
+    transform: translateY(32px);
+    opacity: 0.4;
   }
   to {
+    transform: translateY(0);
     opacity: 1;
   }
 }
 
-@keyframes panel-slide-up-soft {
+@keyframes drawer-in {
   from {
-    opacity: 0;
-    transform: translateY(16px) scale(0.98);
+    transform: translateX(40px);
+    opacity: 0.4;
   }
   to {
+    transform: translateX(0);
     opacity: 1;
-    transform: translateY(0) scale(1);
+  }
+}
+
+/* Pop façon jeu : la pastille grossit puis se stabilise */
+@keyframes pop {
+  0% {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.12);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes shine-sweep {
+  from {
+    background-position: 120% 0;
+  }
+  to {
+    background-position: -20% 0;
+  }
+}
+
+@keyframes toast-in {
+  from {
+    transform: translate(-50%, 24px);
+    opacity: 0;
+  }
+  to {
+    transform: translate(-50%, 0);
+    opacity: 1;
+  }
+}
+
+@keyframes confetti-fall {
+  0% {
+    transform: translateY(-10vh) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(105vh) rotate(720deg);
+    opacity: 0.9;
+  }
+}
+
+@keyframes bar-grow {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes fill-grow {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
   }
 }
 
@@ -60,11 +250,31 @@ body {
   animation: fade-soft 200ms ease-out;
 }
 
-.overlay-fade-soft {
-  animation: overlay-fade-soft 180ms ease-out;
+.pop {
+  animation: pop 420ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
 
-.panel-slide-up-soft {
-  animation: panel-slide-up-soft 220ms cubic-bezier(0.16, 1, 0.3, 1);
+.bar-grow {
+  transform-origin: bottom;
+  animation: bar-grow 600ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
+.fill-grow {
+  transform-origin: left;
+  animation: fill-grow 800ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@media (min-width: 768px) {
+  .sheet-panel.drawer {
+    animation-name: drawer-in;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

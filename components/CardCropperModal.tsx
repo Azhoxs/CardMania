@@ -1,9 +1,11 @@
 'use client'
 
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react'
-import { X, Check } from 'lucide-react'
+import { Check, ZoomIn } from 'lucide-react'
+import Sheet from './Sheet'
 
 interface CardCropperModalProps {
+  /** URL de la photo ORIGINALE (object URL), jamais une version déjà compressée. */
   image: string
   onCancel: () => void
   onConfirm: (croppedDataUrl: string) => void
@@ -22,13 +24,71 @@ interface GestureState {
   startDistance?: number
 }
 
+// Une carte fait 63 × 88 mm. On exporte à 20 px/mm : plus net que n'importe quel écran de téléphone.
+const CARD_RATIO = 63 / 88
+const EXPORT_WIDTH = 1260
+const EXPORT_HEIGHT = 1760
+const EXPORT_QUALITY = 0.92
+const MAX_ZOOM = 5
+
+/**
+ * Réduit l'image par paliers (÷2 à chaque passe) avant le rendu final.
+ * Un seul drawImage depuis une photo de 4000 px vers 1260 px donne un résultat
+ * crénelé, surtout sur Safari. Les paliers gardent les fins détails (texte, hologrammes).
+ */
+function drawDownscaled(
+  img: HTMLImageElement,
+  sx: number,
+  sy: number,
+  sw: number,
+  sh: number,
+  outW: number,
+  outH: number,
+): HTMLCanvasElement {
+  let source: CanvasImageSource = img
+  let cx = sx
+  let cy = sy
+  let cw = sw
+  let ch = sh
+
+  while (cw > outW * 2) {
+    const nw = Math.max(outW, Math.round(cw / 2))
+    const nh = Math.max(outH, Math.round(ch / 2))
+    const step = document.createElement('canvas')
+    step.width = nw
+    step.height = nh
+    const stepCtx = step.getContext('2d')
+    if (!stepCtx) break
+    stepCtx.imageSmoothingEnabled = true
+    stepCtx.imageSmoothingQuality = 'high'
+    stepCtx.drawImage(source, cx, cy, cw, ch, 0, 0, nw, nh)
+    source = step
+    cx = 0
+    cy = 0
+    cw = nw
+    ch = nh
+  }
+
+  const out = document.createElement('canvas')
+  out.width = outW
+  out.height = outH
+  const ctx = out.getContext('2d')
+  if (ctx) {
+    ctx.imageSmoothingEnabled = true
+    ctx.imageSmoothingQuality = 'high'
+    ctx.drawImage(source, cx, cy, cw, ch, 0, 0, outW, outH)
+  }
+  return out
+}
+
 export default function CardCropperModal({ image, onCancel, onConfirm }: CardCropperModalProps) {
   const frameRef = useRef<HTMLDivElement | null>(null)
+  const imgRef = useRef<HTMLImageElement | null>(null)
   const [naturalSize, setNaturalSize] = useState<{ width: number; height: number } | null>(null)
   const [frameSize, setFrameSize] = useState<{ width: number; height: number } | null>(null)
-  const [baseScale, setBaseScale] = useState(1)
   const [scale, setScale] = useState(1)
   const [offset, setOffset] = useState<Point>({ x: 0, y: 0 })
+  const [exporting, setExporting] = useState(false)
 
   const pointersRef = useRef<Map<number, Point>>(new Map())
   const gestureRef = useRef<GestureState>({
@@ -37,24 +97,47 @@ export default function CardCropperModal({ image, onCancel, onConfirm }: CardCro
     startScale: 1,
   })
 
+  // Échelle qui fait « couvrir » exactement le cadre par la photo
+  const baseScale =
+    naturalSize && frameSize
+      ? Math.max(frameSize.width / naturalSize.width, frameSize.height / naturalSize.height)
+      : 1
+  const displayScale = baseScale * scale
+
+  const clampOffset = (point: Point, nextScale: number): Point => {
+    if (!naturalSize || !frameSize) return point
+    const ds = baseScale * nextScale
+    const maxX = Math.max(0, (naturalSize.width * ds - frameSize.width) / 2)
+    const maxY = Math.max(0, (naturalSize.height * ds - frameSize.height) / 2)
+    return {
+      x: Math.min(maxX, Math.max(-maxX, point.x)),
+      y: Math.min(maxY, Math.max(-maxY, point.y)),
+    }
+  }
+
   useEffect(() => {
     const img = new Image()
-    img.src = image
     img.onload = () => {
-      const nat = { width: img.naturalWidth, height: img.naturalHeight }
-      setNaturalSize(nat)
-
-      if (frameRef.current) {
-        const { clientWidth, clientHeight } = frameRef.current
-        const frame = { width: clientWidth, height: clientHeight }
-        setFrameSize(frame)
-        const base = Math.max(frame.width / nat.width, frame.height / nat.height)
-        setBaseScale(base)
-        setScale(1)
-        setOffset({ x: 0, y: 0 })
-      }
+      imgRef.current = img
+      setNaturalSize({ width: img.naturalWidth, height: img.naturalHeight })
+      setScale(1)
+      setOffset({ x: 0, y: 0 })
     }
+    img.src = image
   }, [image])
+
+  useEffect(() => {
+    const measure = () => {
+      if (!frameRef.current) return
+      setFrameSize({
+        width: frameRef.current.clientWidth,
+        height: frameRef.current.clientHeight,
+      })
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  }, [])
 
   const updatePointer = (id: number, point: Point) => {
     const next = new Map(pointersRef.current)
@@ -85,15 +168,11 @@ export default function CardCropperModal({ image, onCancel, onConfirm }: CardCro
       }
     } else if (pointers.length === 2) {
       const [p1, p2] = pointers
-      const dx = p2.x - p1.x
-      const dy = p2.y - p1.y
-      const distance = Math.hypot(dx, dy)
-
       gestureRef.current = {
         mode: 'pinch',
         startOffset: { ...offset },
         startScale: scale,
-        startDistance: distance,
+        startDistance: Math.hypot(p2.x - p1.x, p2.y - p1.y),
       }
     }
   }
@@ -109,194 +188,151 @@ export default function CardCropperModal({ image, onCancel, onConfirm }: CardCro
     const pointers = Array.from(pointersRef.current.values())
 
     if (gesture.mode === 'pan' && gesture.startPoint && pointers.length === 1) {
-      const dx = p.x - gesture.startPoint.x
-      const dy = p.y - gesture.startPoint.y
-      setOffset({
-        x: gesture.startOffset.x + dx,
-        y: gesture.startOffset.y + dy,
-      })
+      setOffset(
+        clampOffset(
+          {
+            x: gesture.startOffset.x + (p.x - gesture.startPoint.x),
+            y: gesture.startOffset.y + (p.y - gesture.startPoint.y),
+          },
+          scale,
+        ),
+      )
     } else if (gesture.mode === 'pinch' && pointers.length >= 2 && gesture.startDistance) {
       const [p1, p2] = pointers
-      const dx = p2.x - p1.x
-      const dy = p2.y - p1.y
-      const distance = Math.hypot(dx, dy)
-
-      const scaleFactor = distance / gesture.startDistance
-      const nextScale = Math.min(3, Math.max(0.8, gesture.startScale * scaleFactor))
+      const distance = Math.hypot(p2.x - p1.x, p2.y - p1.y)
+      const nextScale = Math.min(MAX_ZOOM, Math.max(1, gesture.startScale * (distance / gesture.startDistance)))
       setScale(nextScale)
+      setOffset((prev) => clampOffset(prev, nextScale))
     }
   }
 
   const handlePointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (!frameRef.current) return
-    frameRef.current.releasePointerCapture(e.pointerId)
+    if (frameRef.current.hasPointerCapture(e.pointerId)) {
+      frameRef.current.releasePointerCapture(e.pointerId)
+    }
     removePointer(e.pointerId)
 
     const pointers = Array.from(pointersRef.current.values())
     if (pointers.length === 0) {
-      gestureRef.current = {
-        mode: 'none',
-        startOffset: { ...offset },
-        startScale: scale,
-      }
+      gestureRef.current = { mode: 'none', startOffset: { ...offset }, startScale: scale }
     } else if (pointers.length === 1) {
-      const p = pointers[0]
       gestureRef.current = {
         mode: 'pan',
         startOffset: { ...offset },
         startScale: scale,
-        startPoint: p,
+        startPoint: pointers[0],
       }
     }
   }
 
-  const handleConfirm = () => {
-    if (!naturalSize || !frameSize) return
-
-    const img = new Image()
-    img.src = image
-    img.onload = () => {
-      const { width: imgW, height: imgH } = naturalSize
-      const { width: cw, height: ch } = frameSize
-
-      const displayScale = baseScale * scale
-
-      // 1) On dessine d'abord sur un canvas "plein cadre" qui correspond exactement
-      // à la zone grisée + cadre vert que l'utilisateur voit.
-      const tempCanvas = document.createElement('canvas')
-      tempCanvas.width = cw
-      tempCanvas.height = ch
-      const tempCtx = tempCanvas.getContext('2d')
-      if (!tempCtx) return
-
-      tempCtx.clearRect(0, 0, cw, ch)
-      tempCtx.save()
-      tempCtx.translate(cw / 2 + offset.x, ch / 2 + offset.y)
-      tempCtx.scale(displayScale, displayScale)
-      tempCtx.drawImage(img, -imgW / 2, -imgH / 2)
-      tempCtx.restore()
-
-      // 2) La zone réellement visible pour la carte est le cadre vert,
-      // qui occupe 80% de la largeur et 86% de la hauteur du cadre.
-      const frameW = cw * 0.8
-      const frameH = ch * 0.86
-      const frameX = (cw - frameW) / 2
-      const frameY = (ch - frameH) / 2
-
-      const finalCanvas = document.createElement('canvas')
-      // On exporte en plus haute résolution que l'aperçu visuel
-      const scaleForExport = 3
-      const outW = Math.round(frameW * scaleForExport)
-      const outH = Math.round(frameH * scaleForExport)
-      finalCanvas.width = outW
-      finalCanvas.height = outH
-      const finalCtx = finalCanvas.getContext('2d')
-      if (!finalCtx) return
-
-      finalCtx.clearRect(0, 0, outW, outH)
-      finalCtx.drawImage(
-        tempCanvas,
-        frameX,
-        frameY,
-        frameW,
-        frameH,
-        0,
-        0,
-        outW,
-        outH
-      )
-
-      const dataUrl = finalCanvas.toDataURL('image/jpeg', 0.95)
-      onConfirm(dataUrl)
-    }
+  const applyZoom = (next: number) => {
+    const clamped = Math.min(MAX_ZOOM, Math.max(1, next))
+    setScale(clamped)
+    setOffset((prev) => clampOffset(prev, clamped))
   }
 
-  const displayScale = baseScale * scale
+  const handleConfirm = () => {
+    const img = imgRef.current
+    if (!img || !naturalSize || !frameSize) return
+    setExporting(true)
+
+    // Laisse le temps d'afficher l'état « en cours » avant le calcul lourd
+    setTimeout(() => {
+      // Zone du cadre exprimée dans les pixels de la photo d'origine
+      const sourceW = frameSize.width / displayScale
+      const sourceH = frameSize.height / displayScale
+      const sourceX = Math.min(
+        naturalSize.width - sourceW,
+        Math.max(0, naturalSize.width / 2 - offset.x / displayScale - sourceW / 2),
+      )
+      const sourceY = Math.min(
+        naturalSize.height - sourceH,
+        Math.max(0, naturalSize.height / 2 - offset.y / displayScale - sourceH / 2),
+      )
+
+      const canvas = drawDownscaled(img, sourceX, sourceY, sourceW, sourceH, EXPORT_WIDTH, EXPORT_HEIGHT)
+      onConfirm(canvas.toDataURL('image/jpeg', EXPORT_QUALITY))
+    }, 30)
+  }
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-end sm:items-center sm:justify-center sm:p-4 z-50 overlay-fade-soft">
-      <div className="bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl w-full sm:max-w-2xl max-h-[92vh] sm:max-h-[90vh] overflow-y-auto border border-cream-200">
-        <div className="sm:hidden flex justify-center pt-3 pb-1 bg-white">
-          <div className="w-10 h-1 bg-cream-300 rounded-full" />
-        </div>
-        <div className="flex items-center justify-between px-6 py-4 border-b border-cream-200 bg-white">
-          <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-forest-500">
-              Recadrage de la photo
-            </p>
-            <h2 className="mt-1 text-lg sm:text-xl font-bold text-forest-900">
-              Place ta carte dans le cadre
-            </h2>
-          </div>
+    <Sheet
+      onClose={onCancel}
+      title="Cadre ta carte"
+      subtitle="Glisse pour déplacer, pince ou utilise le curseur pour zoomer."
+      z="z-[80]"
+      size="sm"
+      dismissOnBackdrop={false}
+      footer={
+        <div className="flex gap-3">
+          <button type="button" onClick={onCancel} className="btn-secondary flex-1">
+            Annuler
+          </button>
           <button
             type="button"
-            onClick={onCancel}
-            className="p-2 hover:bg-cream-100 rounded-lg transition-colors text-forest-600"
+            onClick={handleConfirm}
+            disabled={exporting || !naturalSize}
+            className="btn-primary flex-[1.4]"
           >
-            <X className="w-5 h-5" />
+            <Check className="h-5 w-5" />
+            {exporting ? 'Traitement…' : 'Valider le cadrage'}
           </button>
         </div>
-
-        <div className="px-6 pb-5 pt-4 bg-cream-50">
-          <div
-            ref={frameRef}
-            className="relative mx-auto w-full max-w-[320px] aspect-[63/88] bg-forest-900/5 rounded-2xl overflow-hidden touch-none"
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
-            onPointerCancel={handlePointerUp}
-            onWheel={(e: ReactWheelEvent<HTMLDivElement>) => {
-              e.preventDefault()
-              const delta = -e.deltaY
-              const zoomFactor = 1 + delta * 0.0015
-              if (!Number.isFinite(zoomFactor) || zoomFactor <= 0) return
-              setScale((prev) => {
-                const next = prev * zoomFactor
-                return Math.min(3, Math.max(0.8, next))
-              })
-            }}
-          >
-            {naturalSize && (
-              <div className="absolute inset-0">
-                <img
-                  src={image}
-                  alt="Ajuster la carte"
-                  className="absolute top-1/2 left-1/2 select-none pointer-events-none max-w-none max-h-none"
-                  style={{
-                    width: naturalSize.width * displayScale,
-                    height: naturalSize.height * displayScale,
-                    transform: `translate(-50%, -50%) translate(${offset.x}px, ${offset.y}px)`,
-                  }}
-                  draggable={false}
-                />
-              </div>
-            )}
-
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div className="relative w-[80%] h-[86%] rounded-[1.25rem] border-[3px] border-forest-500/90 shadow-[0_0_0_9999px_rgba(0,0,0,0.7)] bg-transparent" />
-            </div>
-          </div>
-
-          <div className="mt-5 flex flex-col sm:flex-row gap-3">
-            <button
-              type="button"
-              onClick={onCancel}
-              className="flex-1 px-6 py-3 bg-cream-100 hover:bg-cream-200 text-forest-900 font-semibold rounded-xl transition-colors"
-            >
-              Annuler
-            </button>
-            <button
-              type="button"
-              onClick={handleConfirm}
-              className="flex-1 px-6 py-3 bg-gradient-to-r from-forest-500 to-forest-600 hover:from-forest-600 hover:to-forest-700 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 inline-flex items-center justify-center gap-2"
-            >
-              <Check className="w-5 h-5" />
-              Valider le cadrage
-            </button>
+      }
+    >
+      <div className="flex flex-col items-center gap-5 pt-2">
+        <div
+          ref={frameRef}
+          className="card-frame w-full max-w-[min(300px,calc(46dvh*0.716))] cursor-grab touch-none active:cursor-grabbing"
+          style={{ aspectRatio: String(CARD_RATIO) }}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
+          onWheel={(e: ReactWheelEvent<HTMLDivElement>) => {
+            const factor = 1 + -e.deltaY * 0.0015
+            if (!Number.isFinite(factor) || factor <= 0) return
+            applyZoom(scale * factor)
+          }}
+        >
+          {naturalSize && frameSize && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={image}
+              alt="Photo à cadrer"
+              draggable={false}
+              className="pointer-events-none absolute left-1/2 top-1/2 max-h-none max-w-none select-none"
+              style={{
+                width: naturalSize.width * displayScale,
+                height: naturalSize.height * displayScale,
+                transform: `translate(-50%, -50%) translate(${offset.x}px, ${offset.y}px)`,
+              }}
+            />
+          )}
+          {/* Repères en tiers pour bien aligner la carte */}
+          <div className="pointer-events-none absolute inset-0 rounded-card ring-2 ring-inset ring-white/90">
+            <div className="absolute inset-y-0 left-1/3 w-px bg-white/50" />
+            <div className="absolute inset-y-0 left-2/3 w-px bg-white/50" />
+            <div className="absolute inset-x-0 top-1/3 h-px bg-white/50" />
+            <div className="absolute inset-x-0 top-2/3 h-px bg-white/50" />
           </div>
         </div>
+
+        <label className="flex w-full max-w-[300px] items-center gap-3 text-ink-500">
+          <ZoomIn className="h-5 w-5 shrink-0" />
+          <input
+            type="range"
+            min={1}
+            max={MAX_ZOOM}
+            step={0.01}
+            value={scale}
+            onChange={(e) => applyZoom(Number(e.target.value))}
+            className="h-11 w-full accent-[#2b4eff]"
+            aria-label="Zoom"
+          />
+        </label>
       </div>
-    </div>
+    </Sheet>
   )
 }
-

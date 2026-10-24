@@ -5,7 +5,9 @@ import Image from 'next/image'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import type { Wish } from '@/lib/supabase'
-import { Plus, Search, Trash2, Edit } from 'lucide-react'
+import { Plus, Search, Trash2, Edit, ExternalLink, ChevronRight } from 'lucide-react'
+import Sheet from './Sheet'
+import { useFavoriteCardType } from '@/lib/useFavoriteCardType'
 import NavbarDesktop from './NavbarDesktop'
 import NavbarMobile from './NavbarMobile'
 import WishModal from './WishModal'
@@ -139,232 +141,206 @@ export default function WishlistClient() {
   const isFriendView =
     viewingUserId !== null && currentUser && viewingUserId !== currentUser.id
 
+  const [activeWish, setActiveWish] = useState<Wish | null>(null)
+  const { favoriteCardType } = useFavoriteCardType()
+
+  const visibleWishes = filteredWishes
+  const friendLabel = friendNameParam || 'ton ami'
+  const hasActiveFilter = searchTerm.trim() !== ''
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-cream-50 via-cream-100 to-forest-50">
+    <div className="min-h-dvh md:pl-[264px]">
       <NavbarDesktop userName={username} userId={currentUser?.id} onLogout={handleLogout} />
 
-      {/* Header mobile avec logo */}
-      <nav className="bg-white/80 backdrop-blur-sm border-b border-cream-200 sticky top-0 z-40 md:hidden">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center gap-3">
-              <div className="w-20 h-20 flex items-center justify-center">
-                <Image
-                  src="/assets/Logo.png"
-                  alt="CardMania"
-                  width={80}
-                  height={80}
-                  className="object-contain"
-                  priority
-                />
-              </div>
-              <h1 className="text-2xl font-bold text-forest-900">CardMania</h1>
-            </div>
-          </div>
-        </div>
-      </nav>
-
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 md:pt-24 pb-16">
+      <main className="mx-auto max-w-[1100px] px-5 pb-52 pt-[calc(5.5rem+env(safe-area-inset-top))] md:px-10 md:pb-16 md:pt-12">
         {isFriendView && (
-          <div className="mb-4 rounded-xl bg-forest-900 text-cream-50 px-4 py-3 flex items-center justify-between text-sm">
-            <span>
-              Tu consultes la liste de souhaits de{' '}
-              <span className="font-semibold">
-                {friendNameParam || 'ton ami'}
-              </span>
-            </span>
-            <button
-              type="button"
-              onClick={() => router.push('/souhaits')}
-              className="ml-3 inline-flex items-center px-3 py-1.5 rounded-full bg-cream-50 text-forest-900 text-xs font-semibold hover:bg-cream-100"
-            >
-              Quitter cette vue
+          <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-3xl bg-brand-50 p-4 pl-5">
+            <p className="text-ink-700">
+              Tu regardes les souhaits de <span className="font-bold text-ink-900">{friendLabel}</span>
+            </p>
+            <button type="button" onClick={() => router.push('/souhaits')} className="btn-primary min-h-[44px] px-5 text-sm">
+              Retour à mes souhaits
             </button>
           </div>
         )}
-        {/* Section titre + CTA uniquement sur desktop */}
-        <section className="mb-8 hidden md:block">
-          <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-lg p-6 border border-cream-200 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+
+        <header className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h1 className="font-display text-[1.75rem] font-extrabold leading-tight tracking-tight text-ink-900 sm:text-4xl">
+              {isFriendView ? `Souhaits de ${friendLabel}` : 'Mes souhaits'}
+            </h1>
             {loadingUser ? (
-              <>
-                <div className="flex-1 space-y-2 animate-pulse">
-                  <div className="h-6 sm:h-8 bg-cream-200 rounded w-2/3" />
-                  <div className="h-4 bg-cream-100 rounded w-full sm:w-3/4" />
-                </div>
-                <div className="w-full sm:w-auto mt-2 sm:mt-0">
-                  <div className="h-10 sm:h-11 bg-cream-200 rounded-xl w-full sm:w-44" />
-                </div>
-              </>
+              <div className="mt-3 h-5 w-40 animate-pulse rounded-full bg-ink-200" />
             ) : (
-              <>
-                <div>
-                  <h1 className="text-2xl sm:text-3xl font-bold text-forest-900">
-                    Liste de souhaits
-                  </h1>
-                  <p className="text-forest-700 mt-1 text-sm sm:text-base">
-                    Note ici toutes les cartes que tu rêves d&apos;ajouter un jour à ta collection.
-                  </p>
-                </div>
-                <button
-                  onClick={handleAddWish}
-                  className="inline-flex items-center justify-center gap-2 px-5 py-3 bg-gradient-to-r from-forest-500 to-forest-600 hover:from-forest-600 hover:to-forest-700 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transition-all duration-200"
-                >
-                  <Plus className="w-5 h-5" />
-                  <span>Ajouter un souhait</span>
-                </button>
-              </>
+              <p className="mt-2 text-base text-ink-500">
+                <span className="font-bold text-ink-900">{wishes.length}</span> carte{wishes.length > 1 ? 's' : ''} à
+                trouver
+              </p>
             )}
           </div>
-        </section>
+          {!isFriendView && (
+            <button onClick={handleAddWish} className="btn-primary hidden shrink-0 md:inline-flex">
+              <Plus className="h-5 w-5" strokeWidth={2.6} />
+              Ajouter un souhait
+            </button>
+          )}
+        </header>
 
-        <section className="mb-6">
-          <div className="flex gap-3 items-stretch">
-            <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-forest-400 w-5 h-5" />
-              <input
-                type="text"
-                placeholder="Rechercher"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                ref={searchInputRef}
-                className="w-full pl-4 pr-4 py-3 bg-white/80 backdrop-blur-sm border border-cream-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-forest-500 focus:border-transparent"
-              />
-            </div>
+        <div className="mt-6 space-y-3">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-ink-400" />
+            <input
+              type="search"
+              placeholder="Rechercher un souhait…"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              ref={searchInputRef}
+              className="field !rounded-full pl-12"
+              aria-label="Rechercher dans les souhaits"
+            />
           </div>
-        </section>
+        </div>
 
-        <section>
+        <section className="mt-6">
           {loadingUser ? (
-            <div className="space-y-3">
+            <ul className="divide-y divide-ink-100 overflow-hidden rounded-3xl bg-white">
               {Array.from({ length: 6 }).map((_, index) => (
-                <div
-                  key={index}
-                  className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-md border border-cream-200 px-4 py-3 flex items-start gap-3 animate-pulse"
-                >
-                  <div className="mt-1 h-9 w-9 rounded-xl bg-cream-200 shrink-0" />
-                  <div className="flex-1 min-w-0 space-y-2">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex-1 space-y-1">
-                        <div className="h-4 bg-cream-200 rounded w-3/4" />
-                        <div className="h-3 bg-cream-100 rounded w-1/2" />
-                      </div>
-                      <div className="flex flex-col items-end gap-1 shrink-0">
-                        <div className="h-6 w-20 bg-cream-200 rounded-full" />
-                        <div className="h-5 w-20 bg-cream-100 rounded-full" />
-                      </div>
-                    </div>
-                    <div className="flex gap-2">
-                      <div className="h-4 w-16 bg-cream-100 rounded-full" />
-                      <div className="h-4 w-20 bg-cream-100 rounded-full" />
-                    </div>
-                    <div className="h-3 w-32 bg-cream-100 rounded" />
+                <li key={index} className="flex animate-pulse items-center gap-4 p-4">
+                  <div className="h-3 w-3 rounded-full bg-ink-200" />
+                  <div className="flex-1 space-y-2">
+                    <div className="h-4 w-1/2 rounded-full bg-ink-200" />
+                    <div className="h-3 w-1/3 rounded-full bg-ink-100" />
                   </div>
-                </div>
+                </li>
               ))}
-            </div>
-          ) : filteredWishes.length === 0 ? (
-            <div className="text-center py-16 bg-white/80 backdrop-blur-sm rounded-2xl shadow-lg border border-cream-200">
-              <div className="flex justify-center mb-4">
-                <Image
-                  src="/assets/Logo.png"
-                  alt="CardMania"
-                  width={75}
-                  height={75}
-                  className="object-contain"
-                />
-              </div>
-              <h3 className="text-2xl font-semibold text-forest-900 mb-2">
-                {searchTerm ? 'Aucun souhait trouvé' : 'Aucun souhait pour le moment'}
-              </h3>
-              <p className="text-forest-600 mb-6">
-                {searchTerm
-                  ? 'Essaie de modifier ta recherche.'
+            </ul>
+          ) : visibleWishes.length === 0 ? (
+            <div className="mx-auto flex max-w-sm flex-col items-center py-16 text-center">
+              <Image src="/assets/Favicon.png" alt="" width={120} height={120} className="mb-6 h-28 w-28 object-contain" />
+              <h2 className="font-display text-xl font-bold text-ink-900">
+                {hasActiveFilter ? 'Aucun souhait ne correspond' : 'Aucun souhait pour le moment'}
+              </h2>
+              <p className="mt-2 text-ink-500">
+                {hasActiveFilter
+                  ? 'Essaie un autre nom ou une autre série.'
                   : isFriendView
-                    ? 'Ton ami n’a pas encore ajouté de souhait.'
-                    : 'Ajoute ta première carte de rêve à suivre facilement.'}
+                    ? "Ton ami n'a pas encore ajouté de souhait."
+                    : 'Note ici les cartes que tu cherches, avec un lien vers l’annonce.'}
               </p>
-              {!searchTerm && !isFriendView && (
+              {hasActiveFilter ? (
                 <button
-                  onClick={handleAddWish}
-                  className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-forest-500 to-forest-600 hover:from-forest-600 hover:to-forest-700 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transition-all duration-200"
+                  type="button"
+                  onClick={() => setSearchTerm('')}
+                  className="btn-secondary mt-6"
                 >
-                  <Plus className="w-5 h-5" />
-                  Ajouter un souhait
+                  Effacer la recherche
                 </button>
+              ) : (
+                !isFriendView && (
+                  <button onClick={handleAddWish} className="btn-primary mt-6">
+                    <Plus className="h-5 w-5" strokeWidth={2.6} />
+                    Ajouter un souhait
+                  </button>
+                )
               )}
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {filteredWishes.map((wish) => (
-                <article
-                  key={wish.id}
-                  className="bg-white/90 backdrop-blur-sm rounded-2xl shadow-sm hover:shadow-md transition-all duration-150 border border-cream-200 flex flex-col justify-between px-3 py-2.5"
-                >
-                  <div className="flex items-start justify-between gap-2 mb-2">
-                    <div className="min-w-0">
-                      <h2 className="text-sm font-semibold text-forest-900 truncate">
-                        {wish.name}
-                      </h2>
-                      <p className="text-[11px] text-forest-600 truncate">
-                        {wish.series}
-                      </p>
-                      {wish.card_type === 'topps' && wish.club?.trim() && (
-                        <p className="text-[11px] text-forest-700 truncate">
-                          {wish.club.trim()}
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="shrink-0 flex flex-col items-end gap-1">
-                      <button
-                        onClick={() => handleEditWish(wish)}
-                        className="inline-flex items-center gap-1 text-[10px] font-medium text-forest-800 hover:text-forest-900 px-2 py-0.5 rounded-full bg-cream-100 hover:bg-cream-200 transition-colors"
-                      >
-                        <Edit className="w-3 h-3" />
-                        <span>Modifier</span>
-                      </button>
-                      <button
-                        onClick={() => setWishIdToDelete(wish.id)}
-                        className="inline-flex items-center gap-1 text-[10px] font-medium text-red-700 hover:text-red-800 px-2 py-0.5 rounded-full bg-red-50 hover:bg-red-100 transition-colors"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                        Suppr.
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="mb-2 flex flex-wrap items-center gap-1.5 text-[10px] text-forest-700 min-h-[1.5rem]">
-                    {wish.is_signed && (
-                      <span className="px-2 py-0.5 rounded-full bg-forest-50 border border-forest-100">
-                        Signée
+            <ul className="fade-soft grid gap-px overflow-hidden rounded-3xl bg-ink-100 ring-1 ring-ink-100 lg:grid-cols-2">
+              {visibleWishes.map((wish) => {
+                const tags: string[] = []
+                if (wish.is_signed) tags.push('Signée')
+                if (wish.is_numbered) tags.push(wish.numbering || 'Numérotée')
+                if (wish.is_special) tags.push('Spéciale')
+                return (
+                  <li key={wish.id} className="bg-white">
+                    <button
+                      type="button"
+                      onClick={() => setActiveWish(wish)}
+                      className="flex min-h-[76px] w-full items-center gap-4 p-4 text-left transition hover:bg-ink-50 active:bg-ink-100"
+                    >
+                      <span
+                        aria-hidden
+                        className={`h-3 w-3 shrink-0 rounded-full ${wish.card_type === 'topps' ? 'bg-brand-500' : 'bg-sun-400'}`}
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-base font-bold text-ink-900">{wish.name}</span>
+                        <span className="block truncate text-sm text-ink-500">
+                          {[wish.series, wish.card_type === 'topps' ? wish.club?.trim() : null, ...tags]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </span>
                       </span>
-                    )}
-                    {wish.is_numbered && wish.numbering && (
-                      <span className="px-2 py-0.5 rounded-full bg-forest-50 border border-forest-100">
-                        {wish.numbering}
-                      </span>
-                    )}
-                    {wish.is_special && (
-                      <span className="px-2 py-0.5 rounded-full bg-forest-50 border border-forest-100">
-                        Spéciale
-                      </span>
-                    )}
-                  </div>
-
-                  <a
-                    href={wish.link_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="mt-auto inline-flex items-center justify-center px-3 py-1.5 rounded-xl bg-gradient-to-r from-forest-500 to-forest-600 text-[11px] font-semibold text-white shadow-sm hover:shadow-md hover:from-forest-600 hover:to-forest-700 transition-all w-full"
-                  >
-                    Ouvrir le lien de la carte
-                  </a>
-                </article>
-              ))}
-            </div>
+                      <ChevronRight className="h-5 w-5 shrink-0 text-ink-300" />
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
           )}
         </section>
       </main>
+
+      {/* Fiche d'un souhait */}
+      {activeWish && (
+        <Sheet
+          variant="drawer"
+          onClose={() => setActiveWish(null)}
+          title={activeWish.name}
+          subtitle={activeWish.series}
+          footer={
+            <div className="space-y-3 pb-1">
+              <a href={activeWish.link_url} target="_blank" rel="noreferrer" className="btn-primary w-full">
+                <ExternalLink className="h-5 w-5" />
+                Ouvrir l&apos;annonce
+              </a>
+              {!isFriendView && (
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => {
+                      handleEditWish(activeWish)
+                      setActiveWish(null)
+                    }}
+                    className="btn-secondary flex-1"
+                  >
+                    <Edit className="h-5 w-5" />
+                    Modifier
+                  </button>
+                  <button
+                    onClick={() => {
+                      setWishIdToDelete(activeWish.id)
+                      setActiveWish(null)
+                    }}
+                    className="btn-danger flex-1"
+                  >
+                    <Trash2 className="h-5 w-5" />
+                    Supprimer
+                  </button>
+                </div>
+              )}
+            </div>
+          }
+        >
+          <dl className="divide-y divide-ink-100">
+            {(() => {
+              const rows: { label: string; value: string }[] = [
+                { label: 'Type', value: activeWish.card_type === 'topps' ? 'Topps / Panini' : 'Pokémon' },
+              ]
+              if (activeWish.card_type === 'topps' && activeWish.club?.trim()) {
+                rows.push({ label: 'Club', value: activeWish.club.trim() })
+              }
+              if (activeWish.is_numbered) rows.push({ label: 'Numérotation', value: activeWish.numbering || 'Oui' })
+              if (activeWish.is_signed) rows.push({ label: 'Signature', value: 'Carte signée' })
+              if (activeWish.is_special) rows.push({ label: 'Particularité', value: 'Carte spéciale' })
+              return rows.map((row) => (
+                <div key={row.label} className="flex min-h-[52px] items-center justify-between gap-4 py-2">
+                  <dt className="text-ink-500">{row.label}</dt>
+                  <dd className="text-right font-semibold text-ink-900">{row.value}</dd>
+                </div>
+              ))
+            })()}
+          </dl>
+        </Sheet>
+      )}
 
       {isModalOpen && (
         <WishModal
@@ -374,6 +350,7 @@ export default function WishlistClient() {
             setSelectedWish(null)
           }}
           onSave={handleSaveWish}
+          defaultCardType={favoriteCardType}
         />
       )}
 
@@ -385,13 +362,13 @@ export default function WishlistClient() {
             (() => {
               const wish = wishes.find((w) => w.id === wishIdToDelete)
               if (!wish) return 'Ce souhait sera définitivement supprimé.'
-              return `Le souhait "${wish.name}" (${wish.series}) sera définitivement supprimé de ta liste.`
+              return `« ${wish.name} » (${wish.series}) sera définitivement supprimé de ta liste.`
             })()
           }
           tone="danger"
           confirmLabel="Supprimer"
           cancelLabel="Annuler"
-          icon={<Trash2 className="w-6 h-6" />}
+          icon={<Trash2 className="h-6 w-6" />}
           onCancel={() => setWishIdToDelete(null)}
           onConfirm={async () => {
             if (wishIdToDelete) {
@@ -402,16 +379,7 @@ export default function WishlistClient() {
         />
       )}
 
-      {!isModalOpen && !wishIdToDelete && (
-        <NavbarMobile
-          onAdd={handleAddWish}
-          onSearch={() => {
-            window.scrollTo({ top: 0, behavior: 'smooth' })
-            setTimeout(() => searchInputRef.current?.focus(), 300)
-          }}
-        />
-      )}
+      <NavbarMobile onAdd={handleAddWish} addLabel="Ajouter un souhait" />
     </div>
   )
 }
-

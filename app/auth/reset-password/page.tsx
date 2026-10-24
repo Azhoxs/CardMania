@@ -95,60 +95,56 @@ export default function ResetPasswordPage() {
   }
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-cream-50 via-cream-100 to-forest-50 flex items-center justify-center px-4">
-      <section className="w-full max-w-md bg-white/85 backdrop-blur-sm rounded-2xl border border-cream-200 shadow-xl p-6 sm:p-8">
-        <h1 className="text-2xl font-semibold text-forest-900">Réinitialiser le mot de passe</h1>
-        <p className="mt-2 text-sm text-forest-700">
-          Choisis un nouveau mot de passe pour ton compte.
-        </p>
+    <main className="flex min-h-dvh items-center justify-center px-5 py-10 pb-safe">
+      <section className="w-full max-w-md rounded-[28px] bg-white p-6 shadow-lift sm:p-8">
+        <h1 className="font-display text-2xl font-bold text-ink-900">Nouveau mot de passe</h1>
+        <p className="mt-1.5 text-ink-500">Choisis un nouveau mot de passe pour ton compte.</p>
 
         {error && (
-          <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <div role="alert" className="mt-5 rounded-2xl bg-danger-50 px-4 py-3 text-sm font-medium text-danger-600">
             {error}
           </div>
         )}
 
         {success && (
-          <div className="mt-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
-            {success}
-          </div>
+          <div className="mt-5 rounded-2xl bg-brand-50 px-4 py-3 text-sm font-medium text-brand-700">{success}</div>
         )}
 
-        <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+        <form onSubmit={handleSubmit} className="mt-6 space-y-5">
           <div>
-            <label className="block text-sm font-medium text-forest-900 mb-2">Nouveau mot de passe</label>
+            <label className="label" htmlFor="new-password">Nouveau mot de passe</label>
             <input
+              id="new-password"
               type="password"
+              autoComplete="new-password"
               minLength={6}
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-3 bg-cream-50 border border-cream-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-forest-500 focus:border-transparent disabled:opacity-70"
+              className="field disabled:opacity-60"
               placeholder="Au moins 6 caractères"
               disabled={!ready || loading}
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-forest-900 mb-2">Confirmer le mot de passe</label>
+            <label className="label" htmlFor="confirm-password">Confirmer le mot de passe</label>
             <input
+              id="confirm-password"
               type="password"
+              autoComplete="new-password"
               minLength={6}
               required
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
-              className="w-full px-4 py-3 bg-cream-50 border border-cream-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-forest-500 focus:border-transparent disabled:opacity-70"
+              className="field disabled:opacity-60"
               placeholder="Retape le mot de passe"
               disabled={!ready || loading}
             />
           </div>
 
-          <button
-            type="submit"
-            disabled={!ready || loading}
-            className="w-full bg-gradient-to-r from-forest-500 to-forest-600 hover:from-forest-600 hover:to-forest-700 text-white font-semibold py-3 px-5 rounded-xl shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {loading ? 'Mise à jour...' : 'Valider le nouveau mot de passe'}
+          <button type="submit" disabled={!ready || loading} className="btn-primary w-full">
+            {loading ? 'Mise à jour…' : 'Valider le mot de passe'}
           </button>
         </form>
       </section>

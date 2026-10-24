@@ -2,166 +2,133 @@
 
 import Image from 'next/image'
 import { Card } from '@/lib/supabase'
-import { Edit, Trash2 } from 'lucide-react'
+import { TypeDot } from './FormBits'
+
+export type GridLayout = 'gallery' | 'binder'
 
 interface CardGridProps {
   cards: Card[]
-  onEdit: (card: Card) => void
-  onDelete: (cardId: string) => void
+  layout: GridLayout
   onPreview: (card: Card) => void
   groupByClub?: boolean
-  readOnly?: boolean
 }
 
-export default function CardGrid({ cards, onEdit, onDelete, onPreview, groupByClub, readOnly }: CardGridProps) {
-  const getPrice = (card: Card): number | null => {
-    if (card.purchase_price == null) return null
-    return Number(card.purchase_price)
-  }
+const POCKETS_PER_PAGE = 9
 
-  const groups: { clubLabel: string; cards: Card[] }[] = groupByClub
-    ? (() => {
-        const map = new Map<string, Card[]>()
-        for (const card of cards) {
-          const label = card.club?.trim() || 'Sans club'
-          if (!map.has(label)) map.set(label, [])
-          map.get(label)!.push(card)
-        }
-        return Array.from(map.entries())
-          .sort(([a], [b]) => (a === 'Sans club' ? 1 : b === 'Sans club' ? -1 : a.localeCompare(b)))
-          .map(([clubLabel, cardsInGroup]) => ({ clubLabel, cards: cardsInGroup }))
-      })()
-    : [{ clubLabel: '', cards }]
+export const formatPrice = (price: number | null) =>
+  price == null
+    ? '—'
+    : price.toLocaleString('fr-FR', {
+        style: 'currency',
+        currency: 'EUR',
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 2,
+      })
+
+export function groupCards(cards: Card[], groupByClub?: boolean) {
+  if (!groupByClub) return [{ label: '', cards }]
+  const map = new Map<string, Card[]>()
+  for (const card of cards) {
+    const label = card.club?.trim() || 'Sans club'
+    if (!map.has(label)) map.set(label, [])
+    map.get(label)!.push(card)
+  }
+  return Array.from(map.entries())
+    .sort(([a], [b]) => (a === 'Sans club' ? 1 : b === 'Sans club' ? -1 : a.localeCompare(b)))
+    .map(([label, groupCards]) => ({ label, cards: groupCards }))
+}
+
+function CardImage({ card }: { card: Card }) {
+  return card.main_image_url ? (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={card.main_image_url}
+      alt={card.name}
+      loading="lazy"
+      decoding="async"
+      className="h-full w-full object-cover"
+    />
+  ) : (
+    <div className="flex h-full w-full items-center justify-center bg-ink-100">
+      <Image src="/assets/Favicon.png" alt="" width={72} height={72} className="h-[45%] w-[45%] object-contain opacity-40" />
+    </div>
+  )
+}
+
+export default function CardGrid({ cards, layout, onPreview, groupByClub }: CardGridProps) {
+  const groups = groupCards(cards, groupByClub)
 
   return (
-    <div className="space-y-6">
-      {groups.map(({ clubLabel, cards: groupCards }) => (
-        <div key={clubLabel || 'all'}>
+    <div className="space-y-10">
+      {groups.map(({ label, cards: groupCardsList }) => (
+        <section key={label || 'all'}>
           {groupByClub && (
-            <h3 className="text-sm font-semibold text-forest-900 mb-3 px-0.5">{clubLabel}</h3>
+            <h2 className="mb-4 font-display text-base font-bold text-ink-900">
+              {label}
+              <span className="ml-2 font-sans text-sm font-semibold text-ink-500">{groupCardsList.length}</span>
+            </h2>
           )}
-          <div className="grid grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-3 md:gap-4">
-            {groupCards.map((card) => (
-        <div
-          key={card.id}
-          className="bg-white/80 backdrop-blur-sm rounded-1px shadow-lg hover:shadow-xl transition-all duration-300 overflow-hidden border border-cream-200 group cursor-pointer"
-          onClick={() => onPreview(card)}
-        >
-          <div className="aspect-[5/7] bg-gradient-to-br from-cream-100 to-forest-50 flex items-center justify-center relative overflow-hidden rounded-lg">
-            {card.main_image_url ? (
-              <img
-                src={card.main_image_url}
-                alt={card.name}
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <Image
-                src="/assets/Logo.png"
-                alt="CardMania"
-                width={75}
-                height={75}
-                className="object-contain drop-shadow-lg"
-              />
-            )}
-            {/* Icônes édition / suppression (haut droite, seulement au survol) */}
-            {!readOnly && (
-              <div className="absolute top-2 right-2 flex gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity duration-200 z-10">
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onEdit(card)
-                  }}
-                  className="p-1.5 rounded-full bg-white/90 text-forest-900 hover:bg-forest-100 active:bg-forest-200 shadow"
-                  title="Modifier"
-                >
-                  <Edit className="w-3 h-3" />
-                </button>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onDelete(card.id)
-                  }}
-                  className="p-1.5 rounded-full bg-white/90 text-red-700 hover:bg-red-100 active:bg-red-200 shadow"
-                  title="Supprimer"
-                >
-                  <Trash2 className="w-3 h-3" />
-                </button>
-              </div>
-            )}
 
-            {/* Overlay infos au survol */}
-            <div className="absolute inset-0 flex items-end opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-              <div className="w-full bg-gradient-to-t from-black/80 via-black/60 to-transparent px-3 py-3 space-y-1 text-xs text-white">
-                <div>
-                  <p className="font-semibold truncate">{card.name}</p>
-                  <p className="text-[11px] text-white/80 truncate">
-                    {card.series}
-                    {card.card_type === 'topps' && card.club?.trim() && (
-                      <span className="text-white/90"> • {card.club.trim()}</span>
-                    )}
-                  </p>
-                </div>
-
-                {(() => {
-                  const chips: string[] = []
-                  if (card.card_type === 'pokemon') chips.push('Pokémon')
-                  if (card.card_type === 'topps') chips.push('Topps')
-                  if (card.is_signed) chips.push('Signée')
-                  if (card.is_numbered) chips.push(card.numbering ? `${card.numbering}` : 'Numérotée')
-                  if (card.is_special) chips.push('Spéciale')
-                  if (chips.length === 0) return null
-                  return (
-                    <div className="flex flex-wrap gap-1">
-                      {chips.map((label) => (
-                        <span
-                          key={label}
-                          className="px-2 py-0.5 rounded-full bg-white/10 border border-white/20 text-[10px]"
-                        >
-                          {label}
+          {layout === 'gallery' ? (
+            <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3 sm:gap-5 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
+              {groupCardsList.map((card) => (
+                <li key={card.id}>
+                  <button
+                    type="button"
+                    onClick={() => onPreview(card)}
+                    className="card-tile group block w-full rounded-card text-left transition duration-300 hover:-translate-y-2 active:scale-[0.97]"
+                    aria-label={`${card.name}, ${card.series}. Voir le détail`}
+                  >
+                    <div className="card-frame card-shine ring-1 ring-black/5 transition-shadow duration-300 group-hover:shadow-lift">
+                      <CardImage card={card} />
+                      {(card.quantity || 1) > 1 && (
+                        <span className="absolute right-2 top-2 flex h-7 min-w-7 items-center justify-center rounded-full bg-ink-900/85 px-2 text-xs font-extrabold text-white">
+                          ×{card.quantity}
                         </span>
-                      ))}
+                      )}
                     </div>
-                  )
-                })()}
-
-                <p className="text-[11px] font-semibold">
-                  {(() => {
-                    const price = getPrice(card)
-                    if (price == null) return 'Prix : —'
-                    return `Prix : ${price.toLocaleString('fr-FR', {
-                      style: 'currency',
-                      currency: 'EUR',
-                      maximumFractionDigits: 2,
-                    })}`
-                  })()}
-                </p>
-
-                {(() => {
-                  if (!card.purchase_date) return null
-                  const d = new Date(card.purchase_date)
-                  if (isNaN(d.getTime())) return null
-                  return (
-                    <p className="text-[10px] text-white/70">
-                      Achetée le{' '}
-                      {d.toLocaleDateString('fr-FR', {
-                        day: '2-digit',
-                        month: '2-digit',
-                        year: 'numeric',
-                      })}
-                    </p>
-                  )
-                })()}
-              </div>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            // Classeur : des pages de 3 × 3 pochettes, comme un vrai classeur
+            <div className="grid gap-6 lg:grid-cols-2 2xl:grid-cols-3">
+              {Array.from({ length: Math.ceil(groupCardsList.length / POCKETS_PER_PAGE) }).map((_, pageIndex) => {
+                const pageCards = groupCardsList.slice(pageIndex * POCKETS_PER_PAGE, (pageIndex + 1) * POCKETS_PER_PAGE)
+                return (
+                  <div key={pageIndex}>
+                    <p className="mb-2 px-1 text-sm font-semibold text-ink-500">Page {pageIndex + 1}</p>
+                    <ul className="grid grid-cols-3 gap-2 rounded-[28px] bg-ink-200/70 p-2.5 sm:gap-3 sm:p-4">
+                      {pageCards.map((card) => (
+                        <li key={card.id}>
+                          <button
+                            type="button"
+                            onClick={() => onPreview(card)}
+                            className="card-tile block w-full rounded-2xl bg-white/70 p-1.5 ring-1 ring-inset ring-white transition active:scale-95 hover:bg-white sm:p-2"
+                            aria-label={`Ouvrir ${card.name}`}
+                          >
+                            <div className="card-frame card-shine">
+                              <CardImage card={card} />
+                            </div>
+                          </button>
+                        </li>
+                      ))}
+                      {/* Pochettes vides pour garder la page entière */}
+                      {Array.from({ length: POCKETS_PER_PAGE - pageCards.length }).map((__, i) => (
+                        <li key={`empty-${i}`} aria-hidden>
+                          <div className="rounded-2xl bg-white/30 p-1.5 sm:p-2">
+                            <div className="aspect-[63/88] rounded-card" />
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )
+              })}
             </div>
-          </div>
-
-          {/* Plus de texte permanent sous la carte : on garde uniquement le visuel */}
-        </div>
-      ))}
-          </div>
-        </div>
+          )}
+        </section>
       ))}
     </div>
   )

@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import Image from 'next/image'
 import { supabase } from '@/lib/supabase'
 import type { Card } from '@/lib/supabase'
-import { Search, Edit, Trash2, Grid, List, Plus, SlidersHorizontal, Trash2 as TrashIcon } from 'lucide-react'
+import { Search, Edit, Trash2, List, Plus, ArrowUpDown, LayoutGrid, BookOpen, Trash2 as TrashIcon, Tag, Check } from 'lucide-react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import CardModal from './CardModal'
 import CardGrid from './CardGrid'
@@ -12,13 +12,20 @@ import CardList from './CardList'
 import NavbarDesktop from './NavbarDesktop'
 import NavbarMobile from './NavbarMobile'
 import ConfirmDialog from './ConfirmDialog'
+import Sheet from './Sheet'
+import { useFavoriteCardType } from '@/lib/useFavoriteCardType'
+import Link from 'next/link'
+import Celebration, { type CelebrationEvent } from './Celebration'
+import EbayPriceModal from './EbayPriceModal'
 
 interface DashboardClientProps {
   user?: any
   initialCards: Card[]
 }
 
-type SortMode = 'date_desc' | 'date_asc' | 'price_desc' | 'price_asc' | 'numbering_asc' | 'numbering_desc' | 'club'
+type SortMode ='date_desc' | 'date_asc' | 'price_desc' | 'price_asc' | 'numbering_asc' | 'numbering_desc' | 'club'
+// 36 = 4 pages de classeur, et un multiple de 2, 3, 4 et 6 colonnes : les rangées restent pleines
+const PAGE_SIZE = 36
 const CARD_LIST_SELECT = 'id,user_id,name,series,card_type,club,purchase_price,purchase_date,is_signed,is_numbered,numbering,is_special,quantity,main_image_url,created_at,updated_at'
 const CARD_DETAILS_SELECT = `${CARD_LIST_SELECT},images`
 
@@ -29,13 +36,17 @@ export default function DashboardClient({ user, initialCards }: DashboardClientP
   const [selectedCard, setSelectedCard] = useState<Card | null>(null)
   const [previewCard, setPreviewCard] = useState<Card | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
+  const [viewMode, setViewMode] = useState<'gallery' | 'binder' | 'list'>('gallery')
+  const { favoriteCardType } = useFavoriteCardType()
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
+  const [celebration, setCelebration] = useState<CelebrationEvent | null>(null)
   const [sortMode, setSortMode] = useState<SortMode>('date_desc')
   const [loadingUser, setLoadingUser] = useState(true)
   const [currentUser, setCurrentUser] = useState<any | null>(user ?? null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [isSortOverlayOpen, setIsSortOverlayOpen] = useState(false)
   const [cardIdToDelete, setCardIdToDelete] = useState<string | null>(null)
+  const [ebayPriceCard, setEbayPriceCard] = useState<Card | null>(null)
   const router = useRouter()
   const searchParams = useSearchParams()
   const friendIdParam = searchParams.get('friend')
@@ -236,6 +247,47 @@ export default function DashboardClient({ user, initialCards }: DashboardClientP
     setFilteredCards(filtered)
   }, [searchTerm, sortMode, cards])
 
+  // Retour en haut de liste quand la recherche, le tri ou l'affichage changent
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE)
+  }, [searchTerm, sortMode, viewMode])
+
+  const visibleCards = filteredCards.slice(0, visibleCount)
+  const remainingCount = filteredCards.length - visibleCards.length
+
+  // Charge la suite automatiquement quand on arrive en bas de la liste
+  const loadMoreRef = useCallback((node: HTMLDivElement | null) => {
+    if (!node || typeof IntersectionObserver === 'undefined') return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setVisibleCount((count) => count + PAGE_SIZE)
+          observer.disconnect()
+        }
+      },
+      { rootMargin: '600px 0px' },
+    )
+    observer.observe(node)
+  }, [])
+
+  // Mémorise l'affichage choisi (galerie / classeur / liste) sur cet appareil
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem('cardmania:view')
+      if (saved === 'gallery' || saved === 'binder' || saved === 'list') setViewMode(saved)
+    } catch {
+      /* stockage indisponible : on garde la galerie */
+    }
+  }, [])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('cardmania:view', viewMode)
+    } catch {
+      /* ignoré */
+    }
+  }, [viewMode])
+
   const handleLogout = async () => {
     await supabase.auth.signOut()
     router.push('/auth/login')
@@ -302,7 +354,7 @@ export default function DashboardClient({ user, initialCards }: DashboardClientP
 
       if (!error && data) {
         setCards(cards.map(c => c.id === data.id ? data : c))
-      }
+        }
     } else {
       // On vérifie d'abord si une carte identique existe déjà pour cet utilisateur (nom + série)
       const { data: existing, error: existingError } = await supabase
@@ -327,7 +379,7 @@ export default function DashboardClient({ user, initialCards }: DashboardClientP
 
         if (!updateError && updated) {
           setCards(cards.map(c => c.id === updated.id ? updated : c))
-        }
+            }
       } else {
         const { data, error } = await supabase
           .from('cards')
@@ -337,7 +389,13 @@ export default function DashboardClient({ user, initialCards }: DashboardClientP
 
         if (!error && data) {
           setCards([data, ...cards])
-        }
+          setCelebration({ id: Date.now() })
+          try {
+            navigator.vibrate?.(20)
+          } catch {
+            /* pas de vibration sur cet appareil */
+          }
+            }
       }
     }
 
@@ -359,308 +417,250 @@ export default function DashboardClient({ user, initialCards }: DashboardClientP
   const isFriendView =
     viewingUserId !== null && currentUser && viewingUserId !== currentUser.id
 
+  const formatEuro = (value: number) =>
+    value.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', minimumFractionDigits: 0, maximumFractionDigits: 2 })
+
+  const sortOptions: { value: SortMode; label: string }[] = [
+    { value: 'date_desc', label: "Date d'achat : récentes d'abord" },
+    { value: 'date_asc', label: "Date d'achat : anciennes d'abord" },
+    { value: 'price_desc', label: 'Prix : du plus cher au moins cher' },
+    { value: 'price_asc', label: 'Prix : du moins cher au plus cher' },
+    { value: 'numbering_asc', label: 'Numérotation : du plus petit au plus grand' },
+    { value: 'numbering_desc', label: 'Numérotation : du plus grand au plus petit' },
+    { value: 'club', label: 'Regrouper par club' },
+  ]
+
+  const viewOptions = [
+    { mode: 'gallery', Icon: LayoutGrid, label: 'Galerie' },
+    { mode: 'binder', Icon: BookOpen, label: 'Classeur' },
+    { mode: 'list', Icon: List, label: 'Liste' },
+  ] as const
+
+  const friendLabel = friendNameParam || 'ton ami'
+  const hasActiveFilter = searchTerm.trim() !== ''
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-cream-50 via-cream-100 to-forest-50">
-      <nav className="bg-white/80 backdrop-blur-sm border-b border-cream-200 sticky top-0 z-40 md:hidden">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center gap-3">
-              <div className="w-20 h-20 flex items-center justify-center">
-                <Image
-                  src="/assets/Logo.png"
-                  alt="CardMania"
-                  width={80}
-                  height={80}
-                  className="object-contain"
-                  priority
-                />
-              </div>
-              <h1 className="text-2xl font-bold text-forest-900">CardMania</h1>
-            </div>
-
-          </div>
-        </div>
-      </nav>
-
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 md:pt-24 pb-28">
+    <div className="min-h-dvh md:pl-[264px]">
+      <main className="mx-auto max-w-[1400px] px-5 pb-52 pt-[calc(5.5rem+env(safe-area-inset-top))] md:px-10 md:pb-16 md:pt-12">
         {isFriendView && (
-          <div className="mb-4 rounded-xl bg-forest-900 text-cream-50 px-4 py-3 flex items-center justify-between text-sm">
-            <span>
-              Tu consultes la collection de{' '}
-              <span className="font-semibold">
-                {friendNameParam || 'ton ami'}
-              </span>
-            </span>
-            <button
-              type="button"
-              onClick={() => router.push('/dashboard')}
-              className="ml-3 inline-flex items-center px-3 py-1.5 rounded-full bg-cream-50 text-forest-900 text-xs font-semibold hover:bg-cream-100"
-            >
-              Quitter cette vue
+          <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-3xl bg-brand-50 p-4 pl-5">
+            <p className="text-ink-700">
+              Tu regardes la collection de <span className="font-bold text-ink-900">{friendLabel}</span>
+            </p>
+            <button type="button" onClick={() => router.push('/dashboard')} className="btn-primary min-h-[44px] px-5 text-sm">
+              Retour à ma collection
             </button>
           </div>
         )}
-        <div className="mb-8">
-          <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-lg p-6 border border-cream-200">
-            {loadingUser ? (
-              <div className="grid grid-cols-3 gap-2 sm:gap-4 animate-pulse">
-                <div className="text-center p-3 sm:p-4 bg-gradient-to-br from-cream-100 to-cream-200 rounded-xl">
-                  <div className="h-6 sm:h-8 bg-cream-300 rounded mb-2" />
-                  <div className="h-3 bg-cream-200 rounded w-3/4 mx-auto" />
-                </div>
-                <div className="text-center p-3 sm:p-4 bg-gradient-to-br from-cream-100 to-cream-200 rounded-xl">
-                  <div className="h-6 sm:h-8 bg-cream-300 rounded mb-2" />
-                  <div className="h-3 bg-cream-200 rounded w-3/4 mx-auto" />
-                </div>
-                <div className="text-center p-3 sm:p-4 bg-gradient-to-br from-cream-100 to-cream-200 rounded-xl">
-                  <div className="h-6 sm:h-8 bg-cream-300 rounded mb-2" />
-                  <div className="h-3 bg-cream-200 rounded w-3/4 mx-auto" />
-                </div>
-              </div>
+
+        {/* En-tête : titre + chiffres clés en une ligne */}
+        <header className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h1 className="font-display text-[1.75rem] font-extrabold leading-tight tracking-tight text-ink-900 sm:text-4xl">
+              {isFriendView ? `Collection de ${friendLabel}` : 'Ma collection'}
+            </h1>
+            {isFriendView && (loadingUser ? (
+              <div className="mt-3 h-5 w-56 animate-pulse rounded-full bg-ink-200" />
             ) : (
-              <div className="grid grid-cols-3 gap-2 sm:gap-4">
-                <div className="text-center p-3 sm:p-4 bg-gradient-to-br from-forest-50 to-forest-100 rounded-xl">
-                  <p className="text-xl sm:text-3xl font-bold text-forest-900 tabular-nums">{cards.length}</p>
-                  <p className="text-[11px] sm:text-sm text-forest-600 leading-tight mt-0.5">
-                    <span className="sm:hidden">Cartes</span>
-                    <span className="hidden sm:inline">Cartes dans la collection</span>
-                  </p>
-                </div>
-                <div className="text-center p-3 sm:p-4 bg-gradient-to-br from-cream-100 to-cream-200 rounded-xl">
-                  <p className="text-sm sm:text-3xl font-bold text-forest-900 tabular-nums truncate">
-                    {totalSpent.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 2 })}
-                  </p>
-                  <p className="text-[11px] sm:text-sm text-forest-600 leading-tight mt-0.5">Total dépensé</p>
-                </div>
-                <div className="text-center p-3 sm:p-4 bg-gradient-to-br from-forest-100 to-cream-100 rounded-xl">
-                  <p className="text-sm sm:text-3xl font-bold text-forest-900 tabular-nums truncate">
-                    {averagePrice.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 2 })}
-                  </p>
-                  <p className="text-[11px] sm:text-sm text-forest-600 leading-tight mt-0.5">
-                    <span className="sm:hidden">Prix moyen</span>
-                    <span className="hidden sm:inline">Prix moyen par carte</span>
-                  </p>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="mb-6 space-y-4">
-          {loadError && (
-            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 flex items-center justify-between gap-3">
-              <p className="text-sm text-red-700">
-                Erreur de chargement des cartes: {loadError}
+              <p className="mt-2 text-base text-ink-500">
+                <span className="font-bold text-ink-900">{totalCards}</span> carte{totalCards > 1 ? 's' : ''}
+                <span aria-hidden className="mx-2">·</span>
+                <span className="font-bold text-ink-900">{formatEuro(totalSpent)}</span> investis
+                {totalCards > 1 && (
+                  <span className="hidden sm:inline">
+                    <span aria-hidden className="mx-2">·</span>
+                    {formatEuro(averagePrice)} en moyenne
+                  </span>
+                )}
               </p>
-              <button
-                type="button"
-                onClick={() => loadCards()}
-                className="shrink-0 px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-semibold hover:bg-red-700"
-              >
-                Reessayer
-              </button>
-            </div>
+            ))}
+          </div>
+          {!isFriendView && (
+            <button onClick={handleAddCard} className="btn-primary hidden shrink-0 md:inline-flex">
+              <Plus className="h-5 w-5" strokeWidth={2.6} />
+              Ajouter une carte
+            </button>
           )}
+        </header>
 
-          <div className="flex gap-3 items-stretch">
-            <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-forest-400 w-5 h-5" />
-              <input
-                type="text"
-                placeholder="Rechercher"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                ref={searchInputRef}
-                className="w-full pl-4 pr-4 py-3 bg-white/80 backdrop-blur-sm border border-cream-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-forest-500 focus:border-transparent"
-              />
-            </div>
-            
+        {!isFriendView && (
+          <Link
+            href="/statistiques"
+            className="relative mt-5 block overflow-hidden rounded-[28px] border-b-[6px] border-brand-700 bg-brand-500 p-5 text-white transition active:translate-y-[3px] active:border-b-[3px] md:p-6"
+            aria-label="Voir mes statistiques"
+          >
+            <span aria-hidden className="pointer-events-none absolute -right-10 -top-12 h-40 w-40 rounded-full bg-brand-600" />
+            <span aria-hidden className="pointer-events-none absolute -bottom-16 right-16 h-32 w-32 rounded-full bg-sun-400/30" />
+
+            <dl className="relative grid grid-cols-2 gap-2.5">
+              {[
+                { label: 'Cartes', value: loadingUser ? '…' : String(totalCards) },
+                { label: 'Investis', value: loadingUser ? '…' : formatEuro(totalSpent) },
+              ].map((item) => (
+                <div key={item.label} className="rounded-2xl bg-white/15 px-2 py-4 text-center">
+                  <dd className="truncate font-display text-xl font-extrabold tabular-nums sm:text-3xl">{item.value}</dd>
+                  <dt className="mt-0.5 text-xs font-bold text-white/85 sm:text-sm">{item.label}</dt>
+                </div>
+              ))}
+            </dl>
+            <p className="relative mt-3 text-center text-sm font-bold text-white/90">Voir mes statistiques</p>
+          </Link>
+        )}
+
+        {loadError && (
+          <div role="alert" className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-3xl bg-danger-50 p-4 pl-5">
+            <p className="text-danger-600">Impossible de charger les cartes : {loadError}</p>
+            <button type="button" onClick={() => loadCards()} className="btn-danger min-h-[44px] px-5 text-sm">
+              Réessayer
+            </button>
+          </div>
+        )}
+
+        {/* Recherche + filtres rapides */}
+        <div className="mt-6 space-y-3">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-ink-400" />
+            <input
+              type="search"
+              placeholder="Rechercher un nom, une série, un club…"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              ref={searchInputRef}
+              className="field !rounded-full pl-12"
+              aria-label="Rechercher dans la collection"
+            />
+          </div>
+
+          <div className="flex items-center justify-between gap-3 pt-1">
+            <p className="text-sm text-ink-500" aria-live="polite">
+              {loadingUser ? '' : hasActiveFilter ? `${filteredCards.length} résultat${filteredCards.length > 1 ? 's' : ''}` : ''}
+            </p>
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setIsSortOverlayOpen(true)}
-                className="flex items-center justify-center w-11 h-11 rounded-full bg-white/90 backdrop-blur-sm border border-cream-200 text-forest-700 shadow-sm hover:bg-cream-50 active:scale-95 transition-all"
-                aria-label="Filtrer / trier"
-              >
-                <SlidersHorizontal className="w-5 h-5" />
+              <button type="button" onClick={() => setIsSortOverlayOpen(true)} className="pill">
+                <ArrowUpDown className="h-4 w-4" />
+                Trier
               </button>
-
-              {/* Vue grille / liste (mobile) */}
-              <div className="flex md:hidden bg-white/80 backdrop-blur-sm border border-cream-200 rounded-full overflow-hidden">
-                <button
-                  onClick={() => setViewMode('grid')}
-                  className={`px-3 py-2 text-xs ${
-                    viewMode === 'grid'
-                      ? 'bg-forest-500 text-white'
-                      : 'text-forest-600 hover:bg-cream-100'
-                  } transition-colors`}
-                >
-                  <Grid className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => setViewMode('list')}
-                  className={`px-3 py-2 text-xs ${
-                    viewMode === 'list'
-                      ? 'bg-forest-500 text-white'
-                      : 'text-forest-600 hover:bg-cream-100'
-                  } transition-colors`}
-                >
-                  <List className="w-4 h-4" />
-                </button>
+              <div className="flex gap-1 rounded-full bg-ink-100 p-1" role="group" aria-label="Affichage">
+                {viewOptions.map(({ mode, Icon, label }) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => setViewMode(mode)}
+                    aria-pressed={viewMode === mode}
+                    aria-label={label}
+                    title={label}
+                    className={`flex h-[44px] min-w-[44px] items-center justify-center gap-2 rounded-full px-3 text-sm font-semibold transition ${
+                      viewMode === mode ? 'bg-white text-ink-900 shadow-sm' : 'text-ink-500 hover:text-ink-900'
+                    }`}
+                  >
+                    <Icon className="h-5 w-5" />
+                    <span className="hidden xl:inline">{label}</span>
+                  </button>
+                ))}
               </div>
-
-              <div className="hidden md:flex bg-white/80 backdrop-blur-sm border border-cream-200 rounded-xl overflow-hidden">
-                <button
-                  onClick={() => setViewMode('grid')}
-                  className={`px-4 py-3 ${viewMode === 'grid' ? 'bg-forest-500 text-white' : 'text-forest-600 hover:bg-cream-100'} transition-colors`}
-                >
-                  <Grid className="w-5 h-5" />
-                </button>
-                <button
-                  onClick={() => setViewMode('list')}
-                  className={`px-4 py-3 ${viewMode === 'list' ? 'bg-forest-500 text-white' : 'text-forest-600 hover:bg-cream-100'} transition-colors`}
-                >
-                  <List className="w-5 h-5" />
-                </button>
-              </div>
-
-              {!isFriendView && (
-                <button
-                  onClick={handleAddCard}
-                  className="hidden md:flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-forest-500 to-forest-600 hover:from-forest-600 hover:to-forest-700 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transition-all duration-200"
-                >
-                  <Plus className="w-5 h-5" />
-                  <span className="hidden sm:inline">Ajouter</span>
-                </button>
-              )}
             </div>
           </div>
         </div>
 
         <div
           key={`${viewMode}-${sortMode}-${searchTerm}-${filteredCards.length}`}
-          className="fade-soft"
+          className="fade-soft mt-6"
         >
           {loadingUser ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
               {Array.from({ length: 8 }).map((_, index) => (
-                <div
-                  key={index}
-                  className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-md border border-cream-200 p-3 animate-pulse"
-                >
-                  <div className="aspect-[5/7] rounded-xl bg-cream-200 mb-3" />
-                  <div className="h-3 bg-cream-300 rounded w-3/4 mb-2" />
-                  <div className="h-3 bg-cream-200 rounded w-1/2" />
+                <div key={index} className="animate-pulse">
+                  <div className="aspect-[63/88] rounded-card bg-ink-200" />
+                  <div className="mt-3 h-4 w-3/4 rounded-full bg-ink-200" />
+                  <div className="mt-2 h-3 w-1/2 rounded-full bg-ink-100" />
                 </div>
               ))}
             </div>
           ) : filteredCards.length === 0 ? (
-            <div className="text-center py-16 bg-white/80 backdrop-blur-sm rounded-2xl shadow-lg border border-cream-200">
-              <div className="flex justify-center mb-4">
-                <Image
-                  src="/assets/Logo.png"
-                  alt="CardMania"
-                  width={75}
-                  height={75}
-                  className="object-contain"
-                />
-              </div>
-              <h3 className="text-2xl font-semibold text-forest-900 mb-2">
-                {searchTerm
-                  ? 'Aucune carte trouvée'
+            <div className="mx-auto flex max-w-sm flex-col items-center py-16 text-center">
+              <Image src="/assets/Favicon.png" alt="" width={120} height={120} className="mb-6 h-28 w-28 object-contain" />
+              <h2 className="font-display text-xl font-bold text-ink-900">
+                {hasActiveFilter
+                  ? 'Aucune carte ne correspond'
                   : isFriendView
-                    ? 'Aucune carte dans cette collection'
-                    : 'Aucune carte dans ta collection'}
-              </h3>
-              <p className="text-forest-600 mb-6">
-                {searchTerm 
-                  ? 'Essaie de modifier tes filtres de recherche' 
+                    ? 'Cette collection est vide'
+                    : 'Ta collection est vide'}
+              </h2>
+              <p className="mt-2 text-ink-500">
+                {hasActiveFilter
+                  ? 'Essaie un autre nom, une autre série ou un autre club.'
                   : isFriendView
-                    ? 'Ton ami n’a pas encore ajouté de cartes.'
-                    : 'Ajoute ta première carte coup de cœur (Pokémon, Topps, etc.)'}
+                    ? "Ton ami n'a pas encore ajouté de cartes."
+                    : 'Prends ta première carte en photo : elle apparaîtra ici.'}
               </p>
-              {!searchTerm && !isFriendView && (
+              {hasActiveFilter ? (
                 <button
-                  onClick={handleAddCard}
-                  className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-forest-500 to-forest-600 hover:from-forest-600 hover:to-forest-700 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transition-all duration-200"
+                  type="button"
+                  onClick={() => setSearchTerm('')}
+                  className="btn-secondary mt-6"
                 >
-                  <Plus className="w-5 h-5" />
-                  Ajouter une carte
+                  Effacer la recherche
                 </button>
+              ) : (
+                !isFriendView && (
+                  <button onClick={handleAddCard} className="btn-primary mt-6">
+                    <Plus className="h-5 w-5" strokeWidth={2.6} />
+                    Ajouter ma première carte
+                  </button>
+                )
               )}
             </div>
-          ) : viewMode === 'grid' ? (
-            <CardGrid 
-              cards={filteredCards} 
-              onEdit={handleEditCard} 
-              onDelete={requestDeleteCard}
+          ) : viewMode === 'list' ? (
+            <CardList cards={visibleCards} onPreview={(card) => setPreviewCard(card)} groupByClub={sortMode === 'club'} />
+          ) : (
+            <CardGrid
+              cards={visibleCards}
+              layout={viewMode}
               onPreview={(card) => setPreviewCard(card)}
               groupByClub={sortMode === 'club'}
-              readOnly={isFriendView}
             />
-          ) : (
-            <CardList 
-              cards={filteredCards} 
-              onEdit={handleEditCard} 
-              onDelete={requestDeleteCard}
-              groupByClub={sortMode === 'club'}
-              readOnly={isFriendView}
-            />
+          )}
+
+          {remainingCount > 0 && !loadingUser && (
+            <div ref={loadMoreRef} key={visibleCount} className="mt-10 flex flex-col items-center gap-3">
+              <p className="text-sm font-semibold text-ink-500">
+                {visibleCards.length} cartes affichées sur {filteredCards.length}
+              </p>
+              <button type="button" onClick={() => setVisibleCount((count) => count + PAGE_SIZE)} className="btn-secondary">
+                Voir {Math.min(PAGE_SIZE, remainingCount)} cartes de plus
+              </button>
+            </div>
           )}
         </div>
       </main>
 
+      {/* Tri */}
       {isSortOverlayOpen && (
-        <div
-          className="fixed inset-0 z-50 bg-black/30 flex items-end sm:items-center justify-center overlay-fade-soft"
-          onClick={() => setIsSortOverlayOpen(false)}
-        >
-          <div
-            className="w-full sm:max-w-md bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl p-5 sm:p-6 border border-cream-200 panel-slide-up-soft max-h-[85vh] overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-base sm:text-lg font-semibold text-forest-900">
-                Filtrer et trier
-              </h2>
-              <button
-                type="button"
-                onClick={() => setIsSortOverlayOpen(false)}
-                className="px-2 py-1 text-forest-600 hover:text-forest-900"
-              >
-                ×
-              </button>
-            </div>
-
-            <div className="space-y-2">
-              {([
-                { value: 'date_desc', label: "Date d'achat : plus récentes" },
-                { value: 'date_asc', label: "Date d'achat : plus anciennes" },
-                { value: 'price_desc', label: 'Prix : du plus cher au moins cher' },
-                { value: 'price_asc', label: 'Prix : du moins cher au plus cher' },
-                { value: 'numbering_asc', label: 'Numérotation : du plus petit au plus grand' },
-                { value: 'numbering_desc', label: 'Numérotation : du plus grand au plus petit' },
-                { value: 'club', label: 'Par club' },
-              ] as { value: SortMode; label: string }[]).map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => {
-                    setSortMode(option.value)
-                    setIsSortOverlayOpen(false)
-                  }}
-                  className={`w-full text-left px-4 py-3 rounded-xl border text-sm ${
-                    sortMode === option.value
-                      ? 'bg-forest-500/10 border-forest-400 text-forest-900 font-semibold'
-                      : 'bg-white border-cream-200 text-forest-800 hover:bg-cream-50'
-                  }`}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
+        <Sheet onClose={() => setIsSortOverlayOpen(false)} title="Trier la collection" size="sm">
+          <ul className="divide-y divide-ink-100">
+            {sortOptions.map((option) => {
+              const active = sortMode === option.value
+              return (
+                <li key={option.value}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSortMode(option.value)
+                      setIsSortOverlayOpen(false)
+                    }}
+                    aria-pressed={active}
+                    className={`flex min-h-[60px] w-full items-center justify-between gap-3 text-left text-base ${
+                      active ? 'font-bold text-brand-600' : 'font-medium text-ink-900'
+                    }`}
+                  >
+                    {option.label}
+                    {active && <Check className="h-5 w-5 shrink-0" />}
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        </Sheet>
       )}
 
       {isModalOpen && (
@@ -672,76 +672,105 @@ export default function DashboardClient({ user, initialCards }: DashboardClientP
           }}
           onSave={handleSaveCard}
           openCameraOnMount={openCameraOnNextModal}
+          defaultCardType={favoriteCardType}
         />
       )}
 
+      {/* Fiche d'une carte : tiroir à droite sur ordinateur, panneau du bas sur mobile */}
       {previewCard && (
-        <div
-          className="fixed inset-0 bg-black/80 flex items-center justify-center z-40 overlay-fade-soft"
-          onClick={() => setPreviewCard(null)}
-        >
-          <button
-            className="absolute top-4 right-4 text-white/80 hover:text-white text-3xl z-10 w-10 h-10 flex items-center justify-center"
-            onClick={(e) => { e.stopPropagation(); setPreviewCard(null) }}
-            aria-label="Fermer"
-          >
-            ×
-          </button>
-
-          <div className="max-w-[95vw] max-h-[80vh] flex items-center justify-center p-4 panel-slide-up-soft">
-            {previewCard.main_image_url ? (
-              <img
-                src={previewCard.main_image_url}
-                alt={previewCard.name}
-                className="max-w-full max-h-[75vh] object-contain rounded-lg"
-              />
-            ) : (
-              <div className="flex flex-col items-center gap-4 text-white/60">
-                <Image
-                  src="/assets/Logo.png"
-                  alt="CardMania"
-                  width={75}
-                  height={75}
-                  className="object-contain drop-shadow-2xl"
-                />
-                <p className="text-lg">{previewCard.name}</p>
-              </div>
-            )}
-          </div>
-
-          <div
-            className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 to-transparent px-6 pt-8 pb-6"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-end justify-between gap-4 max-w-lg mx-auto">
-              <div className="text-white min-w-0">
-                <p className="font-semibold text-lg truncate">{previewCard.name}</p>
-                <p className="text-sm text-white/70 truncate">
-                  {previewCard.series}
-                  {previewCard.card_type === 'topps' && previewCard.club?.trim() && (
-                    <span className="text-white/90"> • {previewCard.club.trim()}</span>
-                  )}
-                </p>
-              </div>
-              <div className="flex gap-2 shrink-0">
+        <Sheet
+          variant="drawer"
+          onClose={() => setPreviewCard(null)}
+          title={previewCard.name}
+          footer={
+            <div className="space-y-3 pb-1">
+              {!isFriendView && (
                 <button
-                  onClick={() => { handleEditCard(previewCard); setPreviewCard(null) }}
-                  className="flex items-center gap-2 px-4 py-2.5 bg-white/20 hover:bg-white/30 active:bg-white/40 text-white rounded-xl backdrop-blur-sm transition-colors"
+                  onClick={() => {
+                    handleEditCard(previewCard)
+                    setPreviewCard(null)
+                  }}
+                  className="btn-primary w-full"
                 >
-                  <Edit className="w-4 h-4" />
-                  <span className="text-sm font-medium">Modifier</span>
+                  <Edit className="h-5 w-5" />
+                  Modifier la carte
                 </button>
-                <button
-                  onClick={() => { requestDeleteCard(previewCard.id); setPreviewCard(null) }}
-                  className="flex items-center gap-2 px-4 py-2.5 bg-red-500/60 hover:bg-red-500/80 active:bg-red-500/90 text-white rounded-xl backdrop-blur-sm transition-colors"
-                >
-                  <Trash2 className="w-4 h-4" />
-                  <span className="text-sm font-medium hidden sm:inline">Supprimer</span>
-                </button>
+              )}
+              <div className="flex gap-3">
+                {previewCard.main_image_url && (
+                  <button onClick={() => setEbayPriceCard(previewCard)} className="btn-secondary flex-1">
+                    <Tag className="h-5 w-5" />
+                    Prix eBay
+                  </button>
+                )}
+                {!isFriendView && (
+                  <button
+                    onClick={() => {
+                      requestDeleteCard(previewCard.id)
+                      setPreviewCard(null)
+                    }}
+                    className="btn-danger flex-1"
+                  >
+                    <Trash2 className="h-5 w-5" />
+                    Supprimer
+                  </button>
+                )}
               </div>
             </div>
+          }
+        >
+          <div className="flex flex-col items-center pb-2 pt-2">
+            <div className="card-frame w-[62%] max-w-[300px] shadow-lift">
+              {previewCard.main_image_url ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={previewCard.main_image_url} alt={previewCard.name} className="h-full w-full object-cover" />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center">
+                  <Image src="/assets/Favicon.png" alt="" width={96} height={96} className="h-24 w-24 object-contain opacity-40" />
+                </div>
+              )}
+            </div>
           </div>
-        </div>
+
+          <dl className="mt-6 divide-y divide-ink-100">
+            {(() => {
+              const date = previewCard.purchase_date ? new Date(previewCard.purchase_date) : null
+              const rows: { label: string; value: string }[] = [
+                { label: 'Série', value: previewCard.series },
+                { label: 'Type', value: previewCard.card_type === 'topps' ? 'Topps / Panini' : 'Pokémon' },
+              ]
+              if (previewCard.card_type === 'topps' && previewCard.club?.trim()) {
+                rows.push({ label: 'Club', value: previewCard.club.trim() })
+              }
+              rows.push({
+                label: "Prix d'achat",
+                value: previewCard.purchase_price == null ? '—' : formatEuro(Number(previewCard.purchase_price)),
+              })
+              if (date && !isNaN(date.getTime())) {
+                rows.push({
+                  label: "Date d'achat",
+                  value: date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }),
+                })
+              }
+              if (previewCard.is_numbered) rows.push({ label: 'Numérotation', value: previewCard.numbering || 'Oui' })
+              if (previewCard.is_signed) rows.push({ label: 'Signature', value: 'Carte signée' })
+              if (previewCard.is_special) rows.push({ label: 'Particularité', value: 'Carte spéciale' })
+              return rows.map((row) => (
+                <div key={row.label} className="flex min-h-[52px] items-center justify-between gap-4 py-2">
+                  <dt className="text-ink-500">{row.label}</dt>
+                  <dd className="text-right font-semibold text-ink-900">{row.value}</dd>
+                </div>
+              ))
+            })()}
+          </dl>
+        </Sheet>
+      )}
+
+      {ebayPriceCard && (
+        <EbayPriceModal
+          card={ebayPriceCard}
+          onClose={() => setEbayPriceCard(null)}
+        />
       )}
 
       {cardIdToDelete && (
@@ -752,13 +781,13 @@ export default function DashboardClient({ user, initialCards }: DashboardClientP
             (() => {
               const card = cards.find(c => c.id === cardIdToDelete)
               if (!card) return "Cette carte sera définitivement supprimée de ta collection."
-              return `La carte "${card.name}" (${card.series}) sera définitivement supprimée de ta collection.`
+              return `« ${card.name} » (${card.series}) sera définitivement supprimée de ta collection.`
             })()
           }
           tone="danger"
           confirmLabel="Supprimer"
           cancelLabel="Annuler"
-          icon={<TrashIcon className="w-6 h-6" />}
+          icon={<TrashIcon className="h-6 w-6" />}
           onCancel={() => setCardIdToDelete(null)}
           onConfirm={async () => {
             if (cardIdToDelete) {
@@ -769,23 +798,13 @@ export default function DashboardClient({ user, initialCards }: DashboardClientP
         />
       )}
 
-      {!isModalOpen && !previewCard && !isSortOverlayOpen && (
-        <>
-          <NavbarDesktop
-            userName={username}
-            userId={currentUser?.id}
-            onLogout={handleLogout}
-          />
-
-          <NavbarMobile
-            onAdd={handleAddCard}
-            onSearch={() => {
-              window.scrollTo({ top: 0, behavior: 'smooth' })
-              setTimeout(() => searchInputRef.current?.focus(), 300)
-            }}
-          />
-        </>
-      )}
+      <NavbarDesktop
+        userName={username}
+        userId={currentUser?.id}
+        onLogout={handleLogout}
+      />
+      <NavbarMobile onAdd={handleAddCard} addLabel="Ajouter une carte" />
+      <Celebration event={celebration} onDone={() => setCelebration(null)} />
     </div>
   )
 }

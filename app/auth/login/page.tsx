@@ -4,7 +4,7 @@ import { useState } from 'react'
 import Image from 'next/image'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
-import { LogIn } from 'lucide-react'
+import { Check } from 'lucide-react'
 
 export default function LoginPage() {
   const [loading, setLoading] = useState(false)
@@ -131,119 +131,128 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-cream-50 via-cream-100 to-forest-50 px-4">
-      <div className="max-w-md w-full space-y-8">
-        <div className="text-center">
-          <div className="flex justify-center mb-6">
-            <div className="w-90 h-90 flex items-center justify-center">
-              <Image
-                src="/assets/Logo.png"
-                alt="CardMania"
-                width={220}
-                height={220}
-                className="object-contain"
-                priority
+    <div className="min-h-dvh md:grid md:grid-cols-[1.05fr_1fr]">
+      {/* Bandeau de marque */}
+      <section className="relative flex flex-col items-center justify-center overflow-hidden rounded-b-[40px] bg-brand-500 px-6 pb-14 pt-[calc(2.5rem+env(safe-area-inset-top))] text-center text-white md:rounded-none md:px-14 md:py-16 md:text-left">
+        <div className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full bg-brand-600/60" aria-hidden />
+        <div className="pointer-events-none absolute -bottom-32 -left-20 h-80 w-80 rounded-full bg-sun-400/90 max-md:hidden" aria-hidden />
+
+        <div className="relative flex flex-col items-center md:items-start">
+          <Image
+            src="/assets/Favicon.png"
+            alt="CardMania"
+            width={200}
+            height={200}
+            className="h-28 w-28 object-contain drop-shadow-[0_12px_24px_rgba(0,0,0,0.25)] md:h-36 md:w-36"
+            priority
+          />
+          <h1 className="mt-5 font-display text-4xl font-extrabold tracking-tight md:text-5xl">CardMania</h1>
+          <p className="mt-3 max-w-sm text-lg text-white/90">Ta collection de cartes, toujours dans ta poche.</p>
+
+          <ul className="mt-10 hidden max-w-sm space-y-4 md:block">
+            {[
+              'Photographie tes cartes en haute définition',
+              'Suis ce que tu as dépensé, carte par carte',
+              'Montre ta collection à tes amis',
+            ].map((text) => (
+              <li key={text} className="flex items-start gap-3 text-base font-medium">
+                <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white text-brand-600">
+                  <Check className="h-4 w-4" strokeWidth={3} />
+                </span>
+                {text}
+              </li>
+            ))}
+          </ul>
+        </div>
+      </section>
+
+      {/* Formulaire */}
+      <section className="flex items-center justify-center px-5 py-8 pb-safe md:px-12">
+        <div className="-mt-6 w-full max-w-md rounded-[28px] bg-white p-6 shadow-lift sm:p-8 md:mt-0 md:bg-transparent md:p-0 md:shadow-none">
+          <h2 className="font-display text-2xl font-bold text-ink-900">
+            {isSignUp ? 'Créer un compte' : 'Content de te revoir'}
+          </h2>
+          <p className="mt-1.5 text-ink-500">
+            {isSignUp ? 'Choisis un pseudo et un mot de passe.' : 'Connecte-toi pour retrouver ta collection.'}
+          </p>
+
+          {error && (
+            <div
+              role="alert"
+              className={`mt-5 rounded-2xl px-4 py-3 text-sm font-medium ${
+                error.startsWith('Compte créé') ? 'bg-brand-50 text-brand-700' : 'bg-danger-50 text-danger-600'
+              }`}
+            >
+              {error}
+            </div>
+          )}
+          {info && (
+            <div className="mt-5 rounded-2xl bg-brand-50 px-4 py-3 text-sm font-medium text-brand-700">{info}</div>
+          )}
+
+          <form onSubmit={handleAuth} className="mt-6 space-y-5">
+            <div>
+              <label className="label" htmlFor="username">Nom d&apos;utilisateur</label>
+              <input
+                id="username"
+                type="text"
+                required
+                autoComplete="username"
+                autoCapitalize="none"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className="field"
+                placeholder="Ton pseudo"
               />
             </div>
-          </div>
-          <h1 className="text-5xl font-bold text-forest-900 mb-2">
-            CardMania
-          </h1>
-          <p className="text-lg text-forest-700">
-            Gérez votre collection de cartes en toute simplicité
-          </p>
-        </div>
 
-        <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-xl p-8 border border-cream-200">
-          <div className="space-y-6">
             <div>
-              <h2 className="text-2xl font-semibold text-forest-900 mb-2">
-                {isSignUp ? 'Inscription' : 'Connexion'}
-              </h2>
-              <p className="text-forest-600">
-                {isSignUp ? 'Créez votre compte' : 'Connectez-vous pour accéder à votre collection'}
-              </p>
+              <label className="label" htmlFor="password">Mot de passe</label>
+              <input
+                id="password"
+                type="password"
+                required
+                autoComplete={isSignUp ? 'new-password' : 'current-password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="field"
+                placeholder="Au moins 6 caractères"
+                minLength={6}
+              />
             </div>
 
-            {error && (
-              <div className={`${error.includes('Vérifiez') ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'} border px-4 py-3 rounded-lg`}>
-                {error}
-              </div>
-            )}
-            {info && (
-              <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg">
-                {info}
-              </div>
-            )}
+            <button type="submit" disabled={loading} className="btn-primary w-full">
+              {loading ? 'Chargement…' : isSignUp ? 'Créer mon compte' : 'Se connecter'}
+            </button>
+          </form>
 
-            <form onSubmit={handleAuth} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-forest-900 mb-2">
-                  Nom d&apos;utilisateur
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  className="w-full px-4 py-3 bg-cream-50 border border-cream-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-forest-500 focus:border-transparent"
-                  placeholder="Votre pseudo"
-                />
-              </div>
+          {!isSignUp && (
+            <button
+              type="button"
+              onClick={handleForgotPassword}
+              disabled={loading}
+              className="mt-2 flex min-h-[48px] w-full items-center justify-center text-sm font-semibold text-brand-600 hover:underline disabled:opacity-50"
+            >
+              Mot de passe oublié ?
+            </button>
+          )}
 
-              <div>
-                <label className="block text-sm font-medium text-forest-900 mb-2">
-                  Mot de passe
-                </label>
-                <input
-                  type="password"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-4 py-3 bg-cream-50 border border-cream-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-forest-500 focus:border-transparent"
-                  placeholder="••••••••"
-                  minLength={6}
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-forest-500 to-forest-600 hover:from-forest-600 hover:to-forest-700 text-white font-semibold py-4 px-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <LogIn className="w-5 h-5" />
-                {loading ? 'Chargement...' : (isSignUp ? "S'inscrire" : 'Se connecter')}
-              </button>
-            </form>
-
-            {!isSignUp && (
-              <div className="text-right">
-                <button
-                  type="button"
-                  onClick={handleForgotPassword}
-                  disabled={loading}
-                  className="text-sm font-medium text-forest-700 hover:text-forest-900 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Mot de passe oublié ?
-                </button>
-              </div>
-            )}
-
-            <div className="text-center">
-              <button
-                onClick={() => {
-                  setIsSignUp(!isSignUp)
-                  setError(null)
-                }}
-                className="text-forest-600 hover:text-forest-800 text-sm font-medium"
-              >
-                {isSignUp ? 'Déjà un compte ? Connectez-vous' : "Pas de compte ? Inscrivez-vous"}
-              </button>
-            </div>
-
+          <div className="mt-4 border-t border-ink-100 pt-5 text-center">
+            <p className="text-sm text-ink-500">{isSignUp ? 'Tu as déjà un compte ?' : "Tu n'as pas encore de compte ?"}</p>
+            <button
+              type="button"
+              onClick={() => {
+                setIsSignUp(!isSignUp)
+                setError(null)
+                setInfo(null)
+              }}
+              className="btn-secondary mt-3 w-full"
+            >
+              {isSignUp ? 'Me connecter' : 'Créer un compte'}
+            </button>
           </div>
         </div>
-      </div>
+      </section>
     </div>
   )
 }

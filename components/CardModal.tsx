@@ -2,26 +2,35 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { Card } from '@/lib/supabase'
-import { X } from 'lucide-react'
+import { Camera, ImagePlus, Check } from 'lucide-react'
 import CardCropperModal from './CardCropperModal'
+import Sheet from './Sheet'
+import { Toggle, Segmented } from './FormBits'
 
 interface CardModalProps {
   card: Card | null
   onClose: () => void
   onSave: (card: Partial<Card>) => void
   openCameraOnMount?: boolean
+  /** Type présélectionné pour une nouvelle carte (type préféré du profil) */
+  defaultCardType?: 'pokemon' | 'topps' | null
 }
+
+// Photos supplémentaires (hors cadrage) : on garde la résolution, on ne fait que borner la taille
+const EXTRA_MAX_SIZE = 2400
+const EXTRA_QUALITY = 0.92
 
 export default function CardModal({
   card,
   onClose,
   onSave,
   openCameraOnMount,
+  defaultCardType,
 }: CardModalProps) {
   const [name, setName] = useState('')
   const [serie, setSerie] = useState('')
   const [purchasePrice, setPurchasePrice] = useState('')
-  const [cardType, setCardType] = useState<'pokemon' | 'topps'>('pokemon')
+  const [cardType, setCardType] = useState<'pokemon' | 'topps'>(card?.card_type ?? defaultCardType ?? 'pokemon')
   const [club, setClub] = useState('')
   const [isSigned, setIsSigned] = useState(false)
   const [isNumbered, setIsNumbered] = useState(false)
@@ -30,9 +39,10 @@ export default function CardModal({
   const [images, setImages] = useState<string[]>([])
   const [imagePreview, setImagePreview] = useState<string>('')
   const [purchaseDate, setPurchaseDate] = useState('')
-  const [rawImageForCrop, setRawImageForCrop] = useState<string | null>(null)
-  const [pendingImages, setPendingImages] = useState<string[]>([])
-  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const [cropSource, setCropSource] = useState<{ url: string; file: File } | null>(null)
+  const [pendingExtras, setPendingExtras] = useState<string[]>([])
+  const cameraInputRef = useRef<HTMLInputElement | null>(null)
+  const galleryInputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
     if (card) {
@@ -57,27 +67,31 @@ export default function CardModal({
   }, [card])
 
   useEffect(() => {
-    if (openCameraOnMount && fileInputRef.current) {
-      fileInputRef.current.click()
+    if (openCameraOnMount && cameraInputRef.current) {
+      cameraInputRef.current.click()
     }
   }, [openCameraOnMount])
 
-  const compressImage = (file: File): Promise<string> => {
+  // Libère l'object URL de la photo d'origine quand on a fini de la cadrer
+  useEffect(() => {
+    if (!cropSource) return
+    const url = cropSource.url
+    return () => URL.revokeObjectURL(url)
+  }, [cropSource])
+
+  /** Encode un fichier en JPEG de haute qualité, sans jamais le réduire plus que nécessaire. */
+  const encodeFile = (file: File, maxSize: number): Promise<string> => {
     return new Promise((resolve, reject) => {
       const img = new Image()
       const url = URL.createObjectURL(file)
       img.onload = () => {
         URL.revokeObjectURL(url)
-        const MAX_SIZE = 1600
-        let { width, height } = img
-        if (width > MAX_SIZE || height > MAX_SIZE) {
-          if (width > height) {
-            height = Math.round((height * MAX_SIZE) / width)
-            width = MAX_SIZE
-          } else {
-            width = Math.round((width * MAX_SIZE) / height)
-            height = MAX_SIZE
-          }
+        let { naturalWidth: width, naturalHeight: height } = img
+        const longest = Math.max(width, height)
+        if (longest > maxSize) {
+          const ratio = maxSize / longest
+          width = Math.round(width * ratio)
+          height = Math.round(height * ratio)
         }
         const canvas = document.createElement('canvas')
         canvas.width = width
@@ -87,9 +101,10 @@ export default function CardModal({
           reject(new Error('Canvas context unavailable'))
           return
         }
+        ctx.imageSmoothingEnabled = true
+        ctx.imageSmoothingQuality = 'high'
         ctx.drawImage(img, 0, 0, width, height)
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.9)
-        resolve(dataUrl)
+        resolve(canvas.toDataURL('image/jpeg', EXTRA_QUALITY))
       }
       img.onerror = () => {
         URL.revokeObjectURL(url)
@@ -100,23 +115,39 @@ export default function CardModal({
   }
 
   const handleImagesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files
-    if (!files || files.length === 0) return
-
-    const fileArray = Array.from(files)
-    Promise.all(fileArray.map((file) => compressImage(file)))
-      .then((base64Images) => {
-        if (base64Images.length === 0) return
-        setPendingImages(base64Images)
-        setRawImageForCrop(base64Images[0])
-      })
-      .catch(() => {
-        setImages([])
-        setImagePreview('')
-        setPendingImages([])
-        setRawImageForCrop(null)
-      })
+    const files = e.target.files ? Array.from(e.target.files) : []
     e.target.value = ''
+    if (files.length === 0) return
+
+    const [first, ...others] = files
+
+    // La première photo part telle quelle (fichier d'origine) vers le cadrage :
+    // aucune recompression avant le recadrage final.
+    setCropSource({ url: URL.createObjectURL(first), file: first })
+
+    Promise.all(others.map((file) => encodeFile(file, EXTRA_MAX_SIZE)))
+      .then(setPendingExtras)
+      .catch(() => setPendingExtras([]))
+  }
+
+  const closeCropper = () => {
+    setCropSource(null)
+    setPendingExtras([])
+  }
+
+  const handleCropCancel = async () => {
+    // Annuler le cadrage garde la photo entière plutôt que de la perdre
+    const source = cropSource
+    const extras = pendingExtras
+    closeCropper()
+    if (!source) return
+    try {
+      const full = await encodeFile(source.file, EXTRA_MAX_SIZE)
+      setImages([full, ...extras])
+      setImagePreview(full)
+    } catch {
+      /* photo illisible : on ne change rien */
+    }
   }
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -142,254 +173,202 @@ export default function CardModal({
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-end sm:items-center sm:justify-center sm:p-4 z-50 overlay-fade-soft">
-      <div className="bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl w-full sm:max-w-2xl max-h-[92vh] sm:max-h-[90vh] overflow-y-auto panel-slide-up-soft">
-        {/* Drag handle on mobile */}
-        <div className="sm:hidden flex justify-center pt-3 pb-1">
-          <div className="w-10 h-1 bg-cream-300 rounded-full" />
-        </div>
-        <div className="sticky top-0 bg-white border-b border-cream-200 px-6 py-4 flex items-center justify-between sm:rounded-t-2xl">
-          <h2 className="text-2xl font-bold text-forest-900">
-            {card ? 'Modifier la carte' : 'Ajouter une carte'}
-          </h2>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-cream-100 rounded-lg transition-colors"
-          >
-            <X className="w-6 h-6 text-forest-600" />
-          </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="p-6 space-y-6">
-          {imagePreview && (
-            <div className="flex justify-center">
-              <div className="w-48 h-64 bg-gradient-to-br from-cream-100 to-forest-50 rounded-xl overflow-hidden shadow-lg">
-                <img
-                  src={imagePreview}
-                  alt="Aperçu"
-                  className="w-full h-full object-cover"
-                />
-              </div>
-            </div>
-          )}
-
-          <div className="space-y-4">
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => setCardType('pokemon')}
-                className={`flex-1 px-4 py-2 rounded-xl border text-sm font-semibold ${
-                  cardType === 'pokemon'
-                    ? 'bg-forest-500 text-white border-forest-500'
-                    : 'bg-cream-50 text-forest-800 border-cream-200'
-                }`}
-              >
-                Pokémon
-              </button>
-              <button
-                type="button"
-                onClick={() => setCardType('topps')}
-                className={`flex-1 px-4 py-2 rounded-xl border text-sm font-semibold ${
-                  cardType === 'topps'
-                    ? 'bg-forest-500 text-white border-forest-500'
-                    : 'bg-cream-50 text-forest-800 border-cream-200'
-                }`}
-              >
-                Topps / Panini
-              </button>
+    <>
+      <Sheet
+        onClose={() => {
+          // Échap pendant le cadrage ne doit fermer que le cadrage
+          if (!cropSource) onClose()
+        }}
+        title={card ? 'Modifier la carte' : 'Nouvelle carte'}
+        size="lg"
+        dismissOnBackdrop={false}
+        footer={
+          <div className="flex gap-3">
+            <button type="button" onClick={onClose} className="btn-secondary flex-1">
+              Annuler
+            </button>
+            <button type="submit" form="card-form" className="btn-primary flex-[1.4]">
+              <Check className="h-5 w-5" />
+              {card ? 'Enregistrer' : 'Ajouter à ma collection'}
+            </button>
+          </div>
+        }
+      >
+        <form id="card-form" onSubmit={handleSubmit} className="space-y-8 pt-1">
+          {/* Photo */}
+          <section className="flex items-center gap-5">
+            <div className="card-frame w-[38%] max-w-[170px] shrink-0">
+              {imagePreview ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={imagePreview} alt="Aperçu de la carte" className="h-full w-full object-cover" />
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => (cameraInputRef.current ?? galleryInputRef.current)?.click()}
+                  className="flex h-full w-full flex-col items-center justify-center gap-2 border-2 border-dashed border-ink-300 text-ink-500 transition hover:border-brand-500 hover:text-brand-600"
+                  aria-label="Ajouter une photo"
+                >
+                  <Camera className="h-8 w-8" />
+                </button>
+              )}
             </div>
 
-            <div>
-              <label className="block text-sm font-semibold text-forest-900 mb-2">
-                Nom de la carte *
-              </label>
+            <div className="flex min-w-0 flex-1 flex-col gap-2.5">
               <input
-                type="text"
-                required
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="w-full px-4 py-3 bg-cream-50 border border-cream-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-forest-500 focus:border-transparent"
-                placeholder="Ex: Dracaufeu"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-semibold text-forest-900 mb-2">
-                Série *
-              </label>
-              <input
-                type="text"
-                required
-                value={serie}
-                onChange={(e) => setSerie(e.target.value)}
-                className="w-full px-4 py-3 bg-cream-50 border border-cream-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-forest-500 focus:border-transparent"
-                placeholder="Ex: Évolutions"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-semibold text-forest-900 mb-2">
-                Prix d&apos;achat *
-              </label>
-              <input
-                type="number"
-                required
-                value={purchasePrice}
-                onChange={(e) => setPurchasePrice(e.target.value)}
-                className="w-full px-4 py-3 bg-cream-50 border border-cream-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-forest-500 focus:border-transparent"
-                placeholder="Ex: 25"
-                min="0"
-                step="0.01"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-semibold text-forest-900 mb-2">
-                Date d&apos;achat
-              </label>
-              <input
-                type="date"
-                value={purchaseDate}
-                onChange={(e) => setPurchaseDate(e.target.value)}
-                className="w-full px-4 py-3 bg-cream-50 border border-cream-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-forest-500 focus:border-transparent"
-              />
-            </div>
-
-            {cardType === 'topps' && (
-              <div className="space-y-3 border border-cream-200 rounded-xl p-4 bg-cream-50">
-                <p className="text-sm font-semibold text-forest-900 mb-1">
-                  Détails
-                </p>
-                <div>
-                  <label className="block text-xs font-semibold text-forest-900 mb-1">
-                    Club
-                  </label>
-                  <input
-                    type="text"
-                    value={club}
-                    onChange={(e) => setClub(e.target.value)}
-                    className="w-full px-3 py-2 bg-white border border-cream-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-forest-500 focus:border-transparent text-sm"
-                    placeholder="Ex: Marseille, PSG, Real Madrid..."
-                  />
-                </div>
-                <label className="flex items-center gap-2 text-sm text-forest-800">
-                  <input
-                    type="checkbox"
-                    checked={isSigned}
-                    onChange={(e) => setIsSigned(e.target.checked)}
-                    className="rounded border-cream-300 text-forest-600 focus:ring-forest-500"
-                  />
-                  Carte signée
-                </label>
-                <label className="flex items-center gap-2 text-sm text-forest-800">
-                  <input
-                    type="checkbox"
-                    checked={isNumbered}
-                    onChange={(e) => setIsNumbered(e.target.checked)}
-                    className="rounded border-cream-300 text-forest-600 focus:ring-forest-500"
-                  />
-                  Carte numérotée
-                </label>
-                {isNumbered && (
-                  <div className="pl-6">
-                    <label className="block text-xs font-semibold text-forest-900 mb-1">
-                      Numérotation
-                    </label>
-                    <input
-                      type="text"
-                      value={numbering}
-                      onChange={(e) => setNumbering(e.target.value)}
-                      className="w-full px-3 py-2 bg-white border border-cream-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-forest-500 focus:border-transparent text-sm"
-                      placeholder="Ex: 12/99"
-                    />
-                  </div>
-                )}
-                <label className="flex items-center gap-2 text-sm text-forest-800">
-                  <input
-                    type="checkbox"
-                    checked={isSpecial}
-                    onChange={(e) => setIsSpecial(e.target.checked)}
-                    className="rounded border-cream-300 text-forest-600 focus:ring-forest-500"
-                  />
-                  Carte spéciale (refractor, patch, etc.)
-                </label>
-              </div>
-            )}
-
-            <div>
-              <label className="block text-sm font-semibold text-forest-900 mb-2">
-                Photos (une ou plusieurs)
-              </label>
-              <input
-                ref={fileInputRef}
+                ref={cameraInputRef}
                 type="file"
                 accept="image/*"
                 capture="environment"
+                onChange={handleImagesChange}
+                className="hidden"
+              />
+              <input
+                ref={galleryInputRef}
+                type="file"
+                accept="image/*"
                 multiple
                 onChange={handleImagesChange}
                 className="hidden"
               />
-              <div className="flex flex-col sm:flex-row gap-2">
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="sm:hidden inline-flex justify-center px-4 py-2.5 rounded-lg text-sm font-semibold bg-forest-50 text-forest-700 hover:bg-forest-100 border border-forest-100"
-                >
-                  Prendre une photo
-                </button>
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="hidden sm:inline-flex justify-center px-4 py-2.5 rounded-lg text-sm font-semibold bg-cream-50 text-forest-800 hover:bg-cream-100 border border-cream-200"
-                >
-                  Importer une image
-                </button>
-              </div>
-              {images.length > 1 && (
-                <p className="mt-2 text-xs text-forest-600">
-                  Seule la première photo est utilisée comme visuel principal dans la grille, mais toutes sont sauvegardées dans la carte.
-                </p>
-              )}
+              <button type="button" onClick={() => cameraInputRef.current?.click()} className="btn-primary w-full sm:hidden">
+                <Camera className="h-5 w-5" />
+                {imagePreview ? 'Reprendre' : 'Prendre une photo'}
+              </button>
+              <button type="button" onClick={() => galleryInputRef.current?.click()} className="btn-secondary w-full">
+                <ImagePlus className="h-5 w-5" />
+                {imagePreview ? 'Changer la photo' : 'Choisir une photo'}
+              </button>
+              <p className="hint">
+                {images.length > 1
+                  ? 'La première photo est le visuel principal, les autres restent dans la fiche.'
+                  : 'À plat, bien éclairée, sans reflet : elle sera cadrée puis gardée en haute définition.'}
+              </p>
             </div>
-          </div>
+          </section>
 
-          <div className="flex gap-3 pt-4">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 px-6 py-3 bg-cream-100 hover:bg-cream-200 text-forest-900 font-semibold rounded-xl transition-colors"
-            >
-              Annuler
-            </button>
-            <button
-              type="submit"
-              className="flex-1 px-6 py-3 bg-gradient-to-r from-forest-500 to-forest-600 hover:from-forest-600 hover:to-forest-700 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transition-all duration-200"
-            >
-              {card ? 'Mettre à jour' : 'Ajouter'}
-            </button>
-          </div>
+          <section className="space-y-5">
+            <h3 className="font-display text-sm font-bold text-ink-900">La carte</h3>
+            <Segmented
+              label="Type de carte"
+              value={cardType}
+              onChange={setCardType}
+              options={[
+                { value: 'pokemon', label: 'Pokémon' },
+                { value: 'topps', label: 'Topps / Panini' },
+              ]}
+            />
+            <div>
+              <label className="label" htmlFor="card-name">Nom</label>
+              <input
+                id="card-name"
+                type="text"
+                required
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="field"
+                placeholder="Ex : Dracaufeu"
+              />
+            </div>
+            <div>
+              <label className="label" htmlFor="card-series">Série</label>
+              <input
+                id="card-series"
+                type="text"
+                required
+                value={serie}
+                onChange={(e) => setSerie(e.target.value)}
+                className="field"
+                placeholder="Ex : Évolutions"
+              />
+            </div>
+            {cardType === 'topps' && (
+              <div>
+                <label className="label" htmlFor="card-club">Club <span className="font-normal text-ink-500">(facultatif)</span></label>
+                <input
+                  id="card-club"
+                  type="text"
+                  value={club}
+                  onChange={(e) => setClub(e.target.value)}
+                  className="field"
+                  placeholder="Ex : Marseille, PSG, Real Madrid…"
+                />
+              </div>
+            )}
+          </section>
+
+          <section className="space-y-5">
+            <h3 className="font-display text-sm font-bold text-ink-900">L&apos;achat</h3>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label" htmlFor="card-price">Prix (€)</label>
+                <input
+                  id="card-price"
+                  type="number"
+                  inputMode="decimal"
+                  required
+                  value={purchasePrice}
+                  onChange={(e) => setPurchasePrice(e.target.value)}
+                  className="field"
+                  placeholder="25"
+                  min="0"
+                  step="0.01"
+                />
+              </div>
+              <div>
+                <label className="label" htmlFor="card-date">Date</label>
+                <input
+                  id="card-date"
+                  type="date"
+                  value={purchaseDate}
+                  onChange={(e) => setPurchaseDate(e.target.value)}
+                  className="field"
+                />
+              </div>
+            </div>
+          </section>
+
+          {cardType === 'topps' && (
+            <section>
+              <h3 className="mb-1 font-display text-sm font-bold text-ink-900">Particularités</h3>
+              <div className="divide-y divide-ink-100">
+                <Toggle checked={isSigned} onChange={setIsSigned} label="Carte signée" />
+                <Toggle checked={isNumbered} onChange={setIsNumbered} label="Carte numérotée" />
+                {isNumbered && (
+                  <div className="py-3">
+                    <label className="label" htmlFor="card-numbering">Numérotation</label>
+                    <input
+                      id="card-numbering"
+                      type="text"
+                      value={numbering}
+                      onChange={(e) => setNumbering(e.target.value)}
+                      className="field"
+                      placeholder="Ex : 12/99"
+                    />
+                  </div>
+                )}
+                <Toggle
+                  checked={isSpecial}
+                  onChange={setIsSpecial}
+                  label="Carte spéciale"
+                  description="Refractor, patch, etc."
+                />
+              </div>
+            </section>
+          )}
         </form>
-      </div>
-      {rawImageForCrop && (
+      </Sheet>
+
+      {cropSource && (
         <CardCropperModal
-          image={rawImageForCrop}
-          onCancel={() => {
-            if (pendingImages.length > 0) {
-              setImages(pendingImages)
-              setImagePreview(pendingImages[0])
-            }
-            setPendingImages([])
-            setRawImageForCrop(null)
-          }}
+          image={cropSource.url}
+          onCancel={handleCropCancel}
           onConfirm={(cropped) => {
-            const allImages = [cropped, ...pendingImages.slice(1)]
-            setImages(allImages)
+            setImages([cropped, ...pendingExtras])
             setImagePreview(cropped)
-            setPendingImages([])
-            setRawImageForCrop(null)
+            closeCropper()
           }}
         />
       )}
-    </div>
+    </>
   )
 }
