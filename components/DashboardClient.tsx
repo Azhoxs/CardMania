@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import Image from 'next/image'
 import { supabase } from '@/lib/supabase'
 import type { Card } from '@/lib/supabase'
-import { Search, Edit, Trash2, List, Plus, ArrowUpDown, LayoutGrid, BookOpen, Trash2 as TrashIcon, Tag, Check } from 'lucide-react'
+import { Search, Edit, Trash2, List, Plus, ArrowUpDown, LayoutGrid, BookOpen, Trash2 as TrashIcon, Tag, Check, Maximize2, X } from 'lucide-react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import CardModal from './CardModal'
 import CardGrid from './CardGrid'
@@ -41,6 +41,7 @@ export default function DashboardClient({ user, initialCards }: DashboardClientP
   const [viewMode, setViewMode] = useState<'gallery' | 'binder' | 'list'>('gallery')
   const { favoriteCardType } = useFavoriteCardType()
   const [page, setPage] = useState(1)
+  const [isPhotoFullscreen, setIsPhotoFullscreen] = useState(false)
   const listTopRef = useRef<HTMLDivElement | null>(null)
   const [celebration, setCelebration] = useState<CelebrationEvent | null>(null)
   const [sortMode, setSortMode] = useState<SortMode>('date_desc')
@@ -249,6 +250,11 @@ export default function DashboardClient({ user, initialCards }: DashboardClientP
 
     setFilteredCards(filtered)
   }, [searchTerm, sortMode, cards])
+
+  // La photo plein écran se ferme avec la fiche
+  useEffect(() => {
+    if (!previewCard) setIsPhotoFullscreen(false)
+  }, [previewCard])
 
   // Retour à la page 1 quand la recherche, le tri ou l'affichage changent
   useEffect(() => {
@@ -676,7 +682,10 @@ export default function DashboardClient({ user, initialCards }: DashboardClientP
       {previewCard && (
         <Sheet
           variant="drawer"
-          onClose={() => setPreviewCard(null)}
+          onClose={() => {
+            if (isPhotoFullscreen) setIsPhotoFullscreen(false)
+            else setPreviewCard(null)
+          }}
           title={previewCard.name}
           footer={
             <div className="space-y-3 pb-1">
@@ -716,16 +725,28 @@ export default function DashboardClient({ user, initialCards }: DashboardClientP
           }
         >
           <div className="flex flex-col items-center pb-2 pt-2">
-            <div className="card-frame w-[62%] max-w-[300px] shadow-lift">
-              {previewCard.main_image_url ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={previewCard.main_image_url} alt={previewCard.name} className="h-full w-full object-cover" />
-              ) : (
+            {previewCard.main_image_url ? (
+              <button
+                type="button"
+                onClick={() => setIsPhotoFullscreen(true)}
+                className="group relative block w-[62%] max-w-[300px] rounded-card transition active:scale-[0.97]"
+                aria-label="Voir la photo en plein écran"
+              >
+                <div className="card-frame card-shine shadow-lift">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={previewCard.main_image_url} alt={previewCard.name} className="h-full w-full object-cover" />
+                </div>
+                <span className="absolute bottom-2 right-2 flex h-10 w-10 items-center justify-center rounded-full bg-ink-900/80 text-white backdrop-blur transition group-hover:bg-ink-900">
+                  <Maximize2 className="h-5 w-5" />
+                </span>
+              </button>
+            ) : (
+              <div className="card-frame w-[62%] max-w-[300px] shadow-lift">
                 <div className="flex h-full w-full items-center justify-center">
                   <Image src="/assets/Favicon.png" alt="" width={96} height={96} className="h-24 w-24 object-contain opacity-40" />
                 </div>
-              )}
-            </div>
+              </div>
+            )}
           </div>
 
           <dl className="mt-6 divide-y divide-ink-100">
@@ -760,6 +781,31 @@ export default function DashboardClient({ user, initialCards }: DashboardClientP
             })()}
           </dl>
         </Sheet>
+      )}
+
+      {isPhotoFullscreen && previewCard?.main_image_url && (
+        <div
+          className="fixed inset-0 z-[75] flex items-center justify-center bg-black/95 p-3"
+          onClick={() => setIsPhotoFullscreen(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Photo de ${previewCard.name}`}
+        >
+          <button
+            type="button"
+            onClick={() => setIsPhotoFullscreen(false)}
+            className="absolute right-4 top-[calc(1rem+env(safe-area-inset-top))] flex h-12 w-12 items-center justify-center rounded-full bg-white/15 text-white backdrop-blur transition hover:bg-white/25 active:scale-95"
+            aria-label="Fermer la photo"
+          >
+            <X className="h-6 w-6" />
+          </button>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={previewCard.main_image_url}
+            alt={previewCard.name}
+            className="pop max-h-full max-w-full rounded-card object-contain"
+          />
+        </div>
       )}
 
       {ebayPriceCard && (
