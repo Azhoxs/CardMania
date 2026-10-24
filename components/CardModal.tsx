@@ -189,7 +189,7 @@ export default function CardModal({
             </button>
             <button type="submit" form="card-form" className="btn-primary flex-[1.4]">
               <Check className="h-5 w-5" />
-              {card ? 'Enregistrer' : 'Ajouter à ma collection'}
+              {card ? 'Enregistrer' : 'Ajouter'}
             </button>
           </div>
         }

@@ -13,6 +13,7 @@ import NavbarDesktop from './NavbarDesktop'
 import NavbarMobile from './NavbarMobile'
 import ConfirmDialog from './ConfirmDialog'
 import Sheet from './Sheet'
+import Pagination from './Pagination'
 import { useFavoriteCardType } from '@/lib/useFavoriteCardType'
 import Link from 'next/link'
 import Celebration, { type CelebrationEvent } from './Celebration'
@@ -24,8 +25,9 @@ interface DashboardClientProps {
 }
 
 type SortMode ='date_desc' | 'date_asc' | 'price_desc' | 'price_asc' | 'numbering_asc' | 'numbering_desc' | 'club'
-// 36 = 4 pages de classeur, et un multiple de 2, 3, 4 et 6 colonnes : les rangées restent pleines
-const PAGE_SIZE = 36
+// Cartes par page. Le classeur affiche des pages de 9 pochettes : 18 = 2 pages de classeur.
+const PAGE_SIZE = 20
+const BINDER_PAGE_SIZE = 18
 const CARD_LIST_SELECT = 'id,user_id,name,series,card_type,club,purchase_price,purchase_date,is_signed,is_numbered,numbering,is_special,quantity,main_image_url,created_at,updated_at'
 const CARD_DETAILS_SELECT = `${CARD_LIST_SELECT},images`
 
@@ -38,7 +40,8 @@ export default function DashboardClient({ user, initialCards }: DashboardClientP
   const [searchTerm, setSearchTerm] = useState('')
   const [viewMode, setViewMode] = useState<'gallery' | 'binder' | 'list'>('gallery')
   const { favoriteCardType } = useFavoriteCardType()
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
+  const [page, setPage] = useState(1)
+  const listTopRef = useRef<HTMLDivElement | null>(null)
   const [celebration, setCelebration] = useState<CelebrationEvent | null>(null)
   const [sortMode, setSortMode] = useState<SortMode>('date_desc')
   const [loadingUser, setLoadingUser] = useState(true)
@@ -247,28 +250,22 @@ export default function DashboardClient({ user, initialCards }: DashboardClientP
     setFilteredCards(filtered)
   }, [searchTerm, sortMode, cards])
 
-  // Retour en haut de liste quand la recherche, le tri ou l'affichage changent
+  // Retour à la page 1 quand la recherche, le tri ou l'affichage changent
   useEffect(() => {
-    setVisibleCount(PAGE_SIZE)
+    setPage(1)
   }, [searchTerm, sortMode, viewMode])
 
-  const visibleCards = filteredCards.slice(0, visibleCount)
-  const remainingCount = filteredCards.length - visibleCards.length
+  const pageSize = viewMode === 'binder' ? BINDER_PAGE_SIZE : PAGE_SIZE
+  const totalPages = Math.max(1, Math.ceil(filteredCards.length / pageSize))
+  // Si on supprime les dernières cartes d'une page, on revient sur la dernière page qui existe
+  const currentPage = Math.min(page, totalPages)
+  const firstIndex = (currentPage - 1) * pageSize
+  const visibleCards = filteredCards.slice(firstIndex, firstIndex + pageSize)
 
-  // Charge la suite automatiquement quand on arrive en bas de la liste
-  const loadMoreRef = useCallback((node: HTMLDivElement | null) => {
-    if (!node || typeof IntersectionObserver === 'undefined') return
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting) {
-          setVisibleCount((count) => count + PAGE_SIZE)
-          observer.disconnect()
-        }
-      },
-      { rootMargin: '600px 0px' },
-    )
-    observer.observe(node)
-  }, [])
+  const goToPage = (nextPage: number) => {
+    setPage(nextPage)
+    listTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
 
   // Mémorise l'affichage choisi (galerie / classeur / liste) sur cet appareil
   useEffect(() => {
@@ -563,8 +560,9 @@ export default function DashboardClient({ user, initialCards }: DashboardClientP
         </div>
 
         <div
-          key={`${viewMode}-${sortMode}-${searchTerm}-${filteredCards.length}`}
-          className="fade-soft mt-6"
+          key={`${viewMode}-${sortMode}-${searchTerm}-${filteredCards.length}-${currentPage}`}
+          ref={listTopRef}
+          className="fade-soft mt-6 scroll-mt-24"
         >
           {loadingUser ? (
             <div className="grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
@@ -621,14 +619,12 @@ export default function DashboardClient({ user, initialCards }: DashboardClientP
             />
           )}
 
-          {remainingCount > 0 && !loadingUser && (
-            <div ref={loadMoreRef} key={visibleCount} className="mt-10 flex flex-col items-center gap-3">
-              <p className="text-sm font-semibold text-ink-500">
-                {visibleCards.length} cartes affichées sur {filteredCards.length}
+          {totalPages > 1 && !loadingUser && (
+            <div className="mt-10 flex flex-col items-center gap-3">
+              <Pagination page={currentPage} totalPages={totalPages} onChange={goToPage} />
+              <p className="text-sm font-semibold text-ink-500" aria-live="polite">
+                Cartes {firstIndex + 1} à {firstIndex + visibleCards.length} sur {filteredCards.length}
               </p>
-              <button type="button" onClick={() => setVisibleCount((count) => count + PAGE_SIZE)} className="btn-secondary">
-                Voir {Math.min(PAGE_SIZE, remainingCount)} cartes de plus
-              </button>
             </div>
           )}
         </div>

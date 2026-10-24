@@ -70,7 +70,7 @@ export default function WishModal({ wish, onClose, onSave, defaultCardType }: Wi
           </button>
           <button type="submit" form="wish-form" className="btn-primary flex-[1.4]">
             <Check className="h-5 w-5" />
-            {wish ? 'Enregistrer' : 'Ajouter à mes souhaits'}
+            {wish ? 'Enregistrer' : 'Ajouter'}
           </button>
         </div>
       }

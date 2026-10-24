@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { X } from 'lucide-react'
 
 interface SheetProps {
@@ -24,6 +24,20 @@ interface SheetProps {
   dismissOnBackdrop?: boolean
 }
 
+// Plusieurs panneaux peuvent être empilés (formulaire + cadrage photo) :
+// on compte les panneaux ouverts et on ne rend le défilement qu'à la fermeture du dernier.
+let openSheets = 0
+
+function lockScroll() {
+  openSheets += 1
+  document.body.style.overflow = 'hidden'
+}
+
+function unlockScroll() {
+  openSheets = Math.max(0, openSheets - 1)
+  if (openSheets === 0) document.body.style.overflow = ''
+}
+
 const SIZES = {
   sm: 'sm:max-w-sm',
   md: 'sm:max-w-lg',
@@ -41,18 +55,22 @@ export default function Sheet({
   z = 'z-50',
   dismissOnBackdrop = true,
 }: SheetProps) {
+  // onClose change à chaque rendu du parent : on le garde dans une ref pour ne pas
+  // réinstaller le verrouillage du défilement à chaque fois
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape') onCloseRef.current()
     }
     window.addEventListener('keydown', onKey)
-    const previousOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
+    lockScroll()
     return () => {
       window.removeEventListener('keydown', onKey)
-      document.body.style.overflow = previousOverflow
+      unlockScroll()
     }
-  }, [onClose])
+  }, [])
 
   const isDrawer = variant === 'drawer'
 
