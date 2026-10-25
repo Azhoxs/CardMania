@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 const EBAY_TOKEN_URL = 'https://api.ebay.com/identity/v1/oauth2/token'
 const EBAY_SEARCH_BY_IMAGE_URL = 'https://api.ebay.com/buy/browse/v1/item_summary/search_by_image'
+const EBAY_SEARCH_URL = 'https://api.ebay.com/buy/browse/v1/item_summary/search'
 const EBAY_SCOPE = 'https://api.ebay.com/oauth/api_scope'
 
 type CachedToken = { accessToken: string; expiresAt: number }
@@ -60,6 +61,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
     const image = body?.image as string | undefined
+    const query = (body?.query as string | undefined)?.trim()
 
     if (!image) {
       return NextResponse.json({ error: 'Image manquante' }, { status: 400 })
@@ -76,15 +78,23 @@ export async function POST(request: NextRequest) {
     const accessToken = await getApplicationToken()
     const marketplaceId = process.env.EBAY_MARKETPLACE_ID || 'EBAY_FR'
 
-    const ebayResponse = await fetch(`${EBAY_SEARCH_BY_IMAGE_URL}?limit=10`, {
+    const headers = {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+      'X-EBAY-C-MARKETPLACE-ID': marketplaceId,
+    }
+
+    const imagePromise = fetch(`${EBAY_SEARCH_BY_IMAGE_URL}?limit=20`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${accessToken}`,
-        'X-EBAY-C-MARKETPLACE-ID': marketplaceId,
-      },
+      headers,
       body: JSON.stringify({ image: stripBase64Prefix(image) }),
     })
+    // La recherche par mots-clés est facultative : si elle échoue, on garde l'image seule
+    const keywordPromise = query
+      ? fetch(`${EBAY_SEARCH_URL}?${new URLSearchParams({ q: query, limit: '20' })}`, { headers }).catch(() => null)
+      : Promise.resolve(null)
+
+    const [ebayResponse, keywordResponse] = await Promise.all([imagePromise, keywordPromise])
 
     if (!ebayResponse.ok) {
       const text = await ebayResponse.text()
@@ -95,15 +105,28 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const data = await ebayResponse.json()
-    const items = (data.itemSummaries || []).map((item: any) => ({
+    const mapItem = (item: any) => ({
       id: item.itemId,
       title: item.title,
       price: item.price ? { value: item.price.value, currency: item.price.currency } : null,
       imageUrl: item.image?.imageUrl ?? null,
       itemWebUrl: item.itemWebUrl,
       condition: item.condition ?? null,
-    }))
+    })
+
+    const imageItems = ((await ebayResponse.json()).itemSummaries || []).map(mapItem)
+    const keywordItems =
+      keywordResponse && keywordResponse.ok
+        ? ((await keywordResponse.json()).itemSummaries || []).map(mapItem)
+        : []
+
+    // Les annonces trouvées par l'image ET par les mots-clés passent en premier : ce sont les plus fiables
+    const imageIds = new Set(imageItems.map((i: { id: string }) => i.id))
+    const keywordIds = new Set(keywordItems.map((i: { id: string }) => i.id))
+    const both = imageItems.filter((i: { id: string }) => keywordIds.has(i.id))
+    const keywordOnly = keywordItems.filter((i: { id: string }) => !imageIds.has(i.id))
+    const imageOnly = imageItems.filter((i: { id: string }) => !keywordIds.has(i.id))
+    const items = [...both, ...keywordOnly, ...imageOnly].slice(0, 20)
 
     return NextResponse.json({ items })
   } catch (error: any) {

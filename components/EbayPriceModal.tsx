@@ -19,6 +19,19 @@ interface EbayPriceModalProps {
   onClose: () => void
 }
 
+// Mots-clés issus de la fiche pour cibler la bonne carte (nom, série, club, numérotation, signature)
+function buildQuery(card: Card): string {
+  const parts = [
+    card.name,
+    card.series,
+    card.club,
+    card.card_type === 'topps' ? 'topps' : 'pokemon',
+    card.is_numbered && card.numbering ? card.numbering : null,
+    card.is_signed ? 'signed auto' : null,
+  ]
+  return parts.filter(Boolean).join(' ')
+}
+
 export default function EbayPriceModal({ card, onClose }: EbayPriceModalProps) {
   const [status, setStatus] = useState<'loading' | 'error' | 'done'>('loading')
   const [items, setItems] = useState<EbayItem[]>([])
@@ -32,7 +45,7 @@ export default function EbayPriceModal({ card, onClose }: EbayPriceModalProps) {
       const response = await fetch('/api/ebay/search-by-image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: card.main_image_url }),
+        body: JSON.stringify({ image: card.main_image_url, query: buildQuery(card) }),
       })
 
       const data = await response.json()
