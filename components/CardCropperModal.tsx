@@ -359,7 +359,7 @@ export default function CardCropperModal({ image, onCancel, onConfirm }: CardCro
           <>
             {detected === null && (
               <p className="w-full max-w-[300px] text-center text-sm text-ink-500">
-                La carte n'a pas pu être détectée automatiquement : cadre-la à la main.
+                La carte n&apos;a pas pu être détectée automatiquement : cadre-la à la main.
               </p>
             )}
             <label className="flex w-full max-w-[300px] items-center gap-3 text-ink-500">
