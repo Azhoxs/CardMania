@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ExternalLink, RefreshCw } from 'lucide-react'
 import Sheet from './Sheet'
 import type { Card } from '@/lib/supabase'
@@ -32,10 +32,42 @@ function buildQuery(card: Card): string {
   return parts.filter(Boolean).join(' ')
 }
 
+type SortMode = 'relevance' | 'price-asc' | 'price-desc'
+
+const SORT_OPTIONS: { value: SortMode; label: string }[] = [
+  { value: 'price-asc', label: 'Prix croissant' },
+  { value: 'price-desc', label: 'Prix décroissant' },
+  { value: 'relevance', label: 'Pertinence' },
+]
+
 export default function EbayPriceModal({ card, onClose }: EbayPriceModalProps) {
   const [status, setStatus] = useState<'loading' | 'error' | 'done'>('loading')
   const [items, setItems] = useState<EbayItem[]>([])
   const [errorMessage, setErrorMessage] = useState('')
+  const [sort, setSort] = useState<SortMode>('price-asc')
+
+  // Les annonces sans prix valide passent toujours en dernier
+  const sortedItems = useMemo(() => {
+    if (sort === 'relevance') return items
+    const priceOf = (item: EbayItem) => {
+      const value = Number(item.price?.value)
+      return Number.isNaN(value) ? null : value
+    }
+    return [...items].sort((a, b) => {
+      const pa = priceOf(a)
+      const pb = priceOf(b)
+      if (pa === null && pb === null) return 0
+      if (pa === null) return 1
+      if (pb === null) return -1
+      return sort === 'price-asc' ? pa - pb : pb - pa
+    })
+  }, [items, sort])
+
+  const soldUrl = `https://www.ebay.fr/sch/i.html?${new URLSearchParams({
+    _nkw: buildQuery(card),
+    LH_Sold: '1',
+    LH_Complete: '1',
+  })}`
 
   const runSearch = async () => {
     setStatus('loading')
@@ -126,8 +158,26 @@ export default function EbayPriceModal({ card, onClose }: EbayPriceModalProps) {
         )}
 
         {status === 'done' && items.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {SORT_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setSort(option.value)}
+                aria-pressed={sort === option.value}
+                className={`min-h-[44px] rounded-full px-4 text-sm font-semibold transition ${
+                  sort === option.value ? 'bg-ink-900 text-white' : 'bg-ink-100 text-ink-700 active:bg-ink-200'
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {status === 'done' && items.length > 0 && (
           <ul className="divide-y divide-ink-100">
-            {items.map((item) => (
+            {sortedItems.map((item) => (
               <li key={item.id}>
                 <a
                   href={item.itemWebUrl}
@@ -153,6 +203,13 @@ export default function EbayPriceModal({ card, onClose }: EbayPriceModalProps) {
               </li>
             ))}
           </ul>
+        )}
+
+        {status !== 'loading' && (
+          <a href={soldUrl} target="_blank" rel="noreferrer" className="btn-secondary w-full">
+            <ExternalLink className="h-5 w-5" />
+            Voir les ventes terminées sur eBay
+          </a>
         )}
       </div>
     </Sheet>
