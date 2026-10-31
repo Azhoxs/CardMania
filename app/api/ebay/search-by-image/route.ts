@@ -84,6 +84,7 @@ export async function POST(request: NextRequest) {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${accessToken}`,
       'X-EBAY-C-MARKETPLACE-ID': marketplace,
+      'X-EBAY-C-ENDUSERCTX': 'contextualLocation=country=FR',
     })
 
     const imagePromise = fetch(`${EBAY_SEARCH_BY_IMAGE_URL}?limit=20`, {
@@ -116,7 +117,8 @@ export async function POST(request: NextRequest) {
       title: item.title,
       price: item.price ? { value: item.price.value, currency: item.price.currency } : null,
       imageUrl: item.image?.imageUrl ?? null,
-      itemWebUrl: item.itemWebUrl,
+      // Les annonces trouvées via eBay.de s'ouvrent quand même sur le site français
+      itemWebUrl: String(item.itemWebUrl ?? '').replace(/^https:\/\/www\.ebay\.[a-z.]+/, 'https://www.ebay.fr'),
       condition: item.condition ?? null,
     })
 
@@ -127,13 +129,17 @@ export async function POST(request: NextRequest) {
         ? ((await keywordResponse.json()).itemSummaries || []).map(mapItem)
         : []
 
-    // Les annonces trouvées par l'image ET par les mots-clés passent en premier : ce sont les plus fiables
+    // Les mots-clés sur eBay.fr sont la référence. L'image (qui ne passe que par eBay.de) ne complète
+    // que lorsqu'il y a peu de résultats, pour ne pas noyer la liste d'annonces allemandes.
+    const MIN_KEYWORD_RESULTS = 5
     const imageIds = new Set(imageItems.map((i: { id: string }) => i.id))
     const keywordIds = new Set(keywordItems.map((i: { id: string }) => i.id))
     const both = imageItems.filter((i: { id: string }) => keywordIds.has(i.id))
     const keywordOnly = keywordItems.filter((i: { id: string }) => !imageIds.has(i.id))
     const imageOnly = imageItems.filter((i: { id: string }) => !keywordIds.has(i.id))
-    const items = [...both, ...keywordOnly, ...imageOnly].slice(0, 20)
+    const items = (
+      keywordItems.length >= MIN_KEYWORD_RESULTS ? keywordItems : [...both, ...keywordOnly, ...imageOnly]
+    ).slice(0, 20)
 
     return NextResponse.json({ items })
   } catch (error: any) {
