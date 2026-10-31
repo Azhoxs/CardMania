@@ -77,28 +77,34 @@ export async function POST(request: NextRequest) {
 
     const accessToken = await getApplicationToken()
     const marketplaceId = process.env.EBAY_MARKETPLACE_ID || 'EBAY_FR'
+    // eBay refuse la recherche par image sur EBAY_FR (seuls DE, AU, US, GB sont acceptés)
+    const imageMarketplaceId = process.env.EBAY_IMAGE_MARKETPLACE_ID || 'EBAY_DE'
 
-    const headers = {
+    const buildHeaders = (marketplace: string) => ({
       'Content-Type': 'application/json',
       Authorization: `Bearer ${accessToken}`,
-      'X-EBAY-C-MARKETPLACE-ID': marketplaceId,
-    }
+      'X-EBAY-C-MARKETPLACE-ID': marketplace,
+    })
 
     const imagePromise = fetch(`${EBAY_SEARCH_BY_IMAGE_URL}?limit=20`, {
       method: 'POST',
-      headers,
+      headers: buildHeaders(imageMarketplaceId),
       body: JSON.stringify({ image: stripBase64Prefix(image) }),
-    })
+    }).catch(() => null)
     // La recherche par mots-clés est facultative : si elle échoue, on garde l'image seule
     const keywordPromise = query
-      ? fetch(`${EBAY_SEARCH_URL}?${new URLSearchParams({ q: query, limit: '20' })}`, { headers }).catch(() => null)
+      ? fetch(`${EBAY_SEARCH_URL}?${new URLSearchParams({ q: query, limit: '20' })}`, {
+          headers: buildHeaders(marketplaceId),
+        }).catch(() => null)
       : Promise.resolve(null)
 
     const [ebayResponse, keywordResponse] = await Promise.all([imagePromise, keywordPromise])
 
-    if (!ebayResponse.ok) {
-      const text = await ebayResponse.text()
-      console.error('[ebay/search-by-image] eBay error', ebayResponse.status, text)
+    // L'erreur n'est fatale que si ni l'image ni les mots-clés n'ont donné de réponse exploitable
+    if (ebayResponse && !ebayResponse.ok) {
+      console.error('[ebay/search-by-image] eBay error', ebayResponse.status, await ebayResponse.clone().text())
+    }
+    if (!ebayResponse?.ok && !keywordResponse?.ok) {
       return NextResponse.json(
         { error: "La recherche eBay a échoué. Réessaye dans quelques instants." },
         { status: 502 }
@@ -114,7 +120,8 @@ export async function POST(request: NextRequest) {
       condition: item.condition ?? null,
     })
 
-    const imageItems = ((await ebayResponse.json()).itemSummaries || []).map(mapItem)
+    const imageItems =
+      ebayResponse && ebayResponse.ok ? ((await ebayResponse.json()).itemSummaries || []).map(mapItem) : []
     const keywordItems =
       keywordResponse && keywordResponse.ok
         ? ((await keywordResponse.json()).itemSummaries || []).map(mapItem)

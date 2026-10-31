@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react'
-import { Check, ZoomIn } from 'lucide-react'
+import { Check, Crop, Wand2, ZoomIn } from 'lucide-react'
+import { detectCardRect, type CardRect } from '@/lib/detectCard'
 import Sheet from './Sheet'
 
 interface CardCropperModalProps {
@@ -29,7 +30,7 @@ const CARD_RATIO = 63 / 88
 const EXPORT_WIDTH = 1260
 const EXPORT_HEIGHT = 1760
 const EXPORT_QUALITY = 0.92
-const MAX_ZOOM = 5
+const MAX_ZOOM = 8
 
 /**
  * Réduit l'image par paliers (÷2 à chaque passe) avant le rendu final.
@@ -89,6 +90,10 @@ export default function CardCropperModal({ image, onCancel, onConfirm }: CardCro
   const [scale, setScale] = useState(1)
   const [offset, setOffset] = useState<Point>({ x: 0, y: 0 })
   const [exporting, setExporting] = useState(false)
+  // undefined = analyse en cours, null = carte non détectée
+  const [detected, setDetected] = useState<CardRect | null | undefined>(undefined)
+  const [autoMode, setAutoMode] = useState(true)
+  const isAuto = autoMode && !!detected
 
   const pointersRef = useRef<Map<number, Point>>(new Map())
   const gestureRef = useRef<GestureState>({
@@ -122,6 +127,8 @@ export default function CardCropperModal({ image, onCancel, onConfirm }: CardCro
       setNaturalSize({ width: img.naturalWidth, height: img.naturalHeight })
       setScale(1)
       setOffset({ x: 0, y: 0 })
+      setAutoMode(true)
+      setDetected(detectCardRect(img))
     }
     img.src = image
   }, [image])
@@ -139,6 +146,21 @@ export default function CardCropperModal({ image, onCancel, onConfirm }: CardCro
     return () => window.removeEventListener('resize', measure)
   }, [])
 
+  // Rognage automatique : place la carte détectée pile dans le cadre
+  useEffect(() => {
+    if (!autoMode || !detected || !naturalSize || !frameSize) return
+    const next = Math.min(MAX_ZOOM, Math.max(1, frameSize.width / detected.width / baseScale))
+    const ds = baseScale * next
+    setScale(next)
+    setOffset(
+      clampOffset(
+        { x: (naturalSize.width / 2 - detected.cx) * ds, y: (naturalSize.height / 2 - detected.cy) * ds },
+        next,
+      ),
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoMode, detected, naturalSize, frameSize])
+
   const updatePointer = (id: number, point: Point) => {
     const next = new Map(pointersRef.current)
     next.set(id, point)
@@ -152,7 +174,7 @@ export default function CardCropperModal({ image, onCancel, onConfirm }: CardCro
   }
 
   const handlePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (!frameRef.current) return
+    if (!frameRef.current || isAuto) return
     frameRef.current.setPointerCapture(e.pointerId)
     const p = { x: e.clientX, y: e.clientY }
     updatePointer(e.pointerId, p)
@@ -260,7 +282,11 @@ export default function CardCropperModal({ image, onCancel, onConfirm }: CardCro
     <Sheet
       onClose={onCancel}
       title="Cadre ta carte"
-      subtitle="Glisse pour déplacer, pince ou utilise le curseur pour zoomer."
+      subtitle={
+        isAuto
+          ? 'Ta carte a été rognée automatiquement.'
+          : 'Glisse pour déplacer, pince ou utilise le curseur pour zoomer.'
+      }
       z="z-[80]"
       size="sm"
       dismissOnBackdrop={false}
@@ -284,13 +310,14 @@ export default function CardCropperModal({ image, onCancel, onConfirm }: CardCro
       <div className="flex flex-col items-center gap-5 pt-2">
         <div
           ref={frameRef}
-          className="card-frame w-full max-w-[min(300px,calc(46dvh*0.716))] cursor-grab touch-none active:cursor-grabbing"
+          className={`card-frame w-full max-w-[min(300px,calc(46dvh*0.716))] touch-none ${isAuto ? '' : 'cursor-grab active:cursor-grabbing'}`}
           style={{ aspectRatio: String(CARD_RATIO) }}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerUp}
           onWheel={(e: ReactWheelEvent<HTMLDivElement>) => {
+            if (isAuto) return
             const factor = 1 + -e.deltaY * 0.0015
             if (!Number.isFinite(factor) || factor <= 0) return
             applyZoom(scale * factor)
@@ -310,28 +337,52 @@ export default function CardCropperModal({ image, onCancel, onConfirm }: CardCro
               }}
             />
           )}
-          {/* Repères en tiers pour bien aligner la carte */}
+          {/* Repères en tiers pour bien aligner la carte (manuel uniquement) */}
           <div className="pointer-events-none absolute inset-0 rounded-card ring-2 ring-inset ring-white/90">
-            <div className="absolute inset-y-0 left-1/3 w-px bg-white/50" />
-            <div className="absolute inset-y-0 left-2/3 w-px bg-white/50" />
-            <div className="absolute inset-x-0 top-1/3 h-px bg-white/50" />
-            <div className="absolute inset-x-0 top-2/3 h-px bg-white/50" />
+            {!isAuto && (
+              <>
+                <div className="absolute inset-y-0 left-1/3 w-px bg-white/50" />
+                <div className="absolute inset-y-0 left-2/3 w-px bg-white/50" />
+                <div className="absolute inset-x-0 top-1/3 h-px bg-white/50" />
+                <div className="absolute inset-x-0 top-2/3 h-px bg-white/50" />
+              </>
+            )}
           </div>
         </div>
 
-        <label className="flex w-full max-w-[300px] items-center gap-3 text-ink-500">
-          <ZoomIn className="h-5 w-5 shrink-0" />
-          <input
-            type="range"
-            min={1}
-            max={MAX_ZOOM}
-            step={0.01}
-            value={scale}
-            onChange={(e) => applyZoom(Number(e.target.value))}
-            className="h-11 w-full accent-[#2b4eff]"
-            aria-label="Zoom"
-          />
-        </label>
+        {isAuto ? (
+          <button type="button" onClick={() => setAutoMode(false)} className="btn-secondary w-full max-w-[300px]">
+            <Crop className="h-5 w-5" />
+            Recadrer manuellement
+          </button>
+        ) : (
+          <>
+            {detected === null && (
+              <p className="w-full max-w-[300px] text-center text-sm text-ink-500">
+                La carte n'a pas pu être détectée automatiquement : cadre-la à la main.
+              </p>
+            )}
+            <label className="flex w-full max-w-[300px] items-center gap-3 text-ink-500">
+              <ZoomIn className="h-5 w-5 shrink-0" />
+              <input
+                type="range"
+                min={1}
+                max={MAX_ZOOM}
+                step={0.01}
+                value={scale}
+                onChange={(e) => applyZoom(Number(e.target.value))}
+                className="h-11 w-full accent-[#2b4eff]"
+                aria-label="Zoom"
+              />
+            </label>
+            {detected && (
+              <button type="button" onClick={() => setAutoMode(true)} className="btn-secondary w-full max-w-[300px]">
+                <Wand2 className="h-5 w-5" />
+                Rognage automatique
+              </button>
+            )}
+          </>
+        )}
       </div>
     </Sheet>
   )
